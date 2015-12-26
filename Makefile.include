@@ -1,0 +1,8 @@
+CFLAGS += -I$(TOSDIR)/lib/wids \
+		-I$(TOSDIR)/lib/wids/dummy \
+		-I$(TOSDIR)/lib/wids/utility \
+		-I$(TOSDIR)/lib/wids/interfaces
+
+CFLAGS += -I$(TOSDIR)/lib/printf
+
+include $(TOSDIR)/lib/mac/tkn154/Makefile.include 
