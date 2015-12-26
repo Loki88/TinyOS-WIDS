@@ -1,0 +1,6 @@
+<volume_table>
+	<volume name="CONFIG" size="7" 	/>
+	<volume name="STATES" size="90" 	/>
+	<volume name="TRANSITIONS" size="961" />
+	<volume name="OBSERVATIONS" size="300" />
+</volume_table>
