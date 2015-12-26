@@ -33,10 +33,6 @@
 
 #include "WIDS.h"
 
-#define FLASH_STATE VOLUME_WIDS0
-#define FLASH_TRANS VOLUME_WIDS1
-#define FLASH_OBS   VOLUME_WIDS2
-
 #define TRACE_NUMBERS 10
 #define RESET_COUNT 5
 
@@ -62,6 +58,7 @@ typedef struct wids_state {
     uint8_t alarm_level;
     wids_obs_list_t *observables;
     struct wids_state_transition *transitions;
+    
     struct wids_state *next;
 
 } wids_state_t;
