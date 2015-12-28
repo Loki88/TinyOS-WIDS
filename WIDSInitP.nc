@@ -27,24 +27,19 @@
  *    IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *
  */
-
-
-#include "ThreatModel.h"
-#include "Wids.h"
+ 
+#include "WIDS.h"
 #include "printf.h"
 
-module TestConfC @safe() {
+module WIDSInitP{
 
-	uses interface Boot;
-
-	uses interface ThreatModel;
 	uses interface ModelConfig;
+}
+implementation {
 
-	uses interface Leds;
-	uses interface Timer<TMilli>;
-	uses interface BusyWait<TMilli, uint16_t>;
-
-} implementation {
+	uint8_t nStates = 24;
+	uint8_t nTransitions = 24;
+	uint8_t nObservables = 60;
 
 	uint8_t initStates[24][3] = {
 		{ 0x01, CONSTANT_JAMMING, LOW_LEV_THREAT },
@@ -124,60 +119,93 @@ module TestConfC @safe() {
 		{ 0x15, OBS_15  }, { 0x15, OBS_30  }, { 0x16, OBS_15 }, { 0x16, OBS_30  },
 	};
 
-	event void Timer.fired(){
+	enum {
+		NONE,
+		INIT_STATE,
+		INIT_TRANS,
+		INIT_OBSER,
+		INIT_DONE
+	};
 
-	}
+	uint8_t state = NONE;
+	uint8_t counter;
 
-	void assertStates(){
-		uint8_t i=0;
-		while( i < 24 ){
+	task void loadStartingConfig();
 
-			wids_state_t *state = call ThreatModel.getState( initStates[i][0] );
-			wids_obs_list_t *obs = state->observables;
-			wids_state_transition_t *trans = state->transitions;
+	void nextTransition();
+	void nextState();
+	void nextObservable();
 
-			printf("Looking for state %d\r\n", initStates[i][0]);
-
-			if ( state != NULL ){
-				
-				printf("State %d attack %d\n", state->id, state->attack);
-				
-				printf("\t Observables:\n");
-				while( obs != NULL ){
-					printf("\t\t- Obs id: %s \n", printObservable(obs->obs));
-					obs = obs->next;
-				}
-
-				printf("\t Reachable states:\n");
-				while( trans != NULL ){
-					printf("\t\t - State id: %d\n", trans->state->id);
-					trans = trans->next;
-				}
-
-				if ( state->id != initStates[i][0] || state->attack != initStates[i][1] 
-					|| state->alarm_level != initStates[i][2]){
-					printf("State Error -> not default value!\n");
-				}
-				printfflush();
-			}
-
-			i += 1;
+	event void ModelConfig.loadDone(error_t error) {
+		if (error == FAIL && state == NONE){
+			printf("Init FAIL\r\n");
+			post loadStartingConfig();
 		}
 	}
 
-	task void validateConfig() {
-		assertStates();
+	task void loadStartingConfig(){
+		switch(state) {
+			case NONE:
+				state = INIT_STATE;
+				counter = 0;
+				post loadStartingConfig();
+				break;
+			case INIT_STATE:
+				if(counter < nStates){
+					nextState();
+					counter += 1;
+				} else {
+					state = INIT_TRANS;
+					counter = 0;
+					post loadStartingConfig();
+				}
+				break;
+			case INIT_TRANS:
+				if(counter < nTransitions){
+					nextTransition();
+					counter += 1;
+				} else {
+					state = INIT_OBSER;
+					counter = 0;
+					post loadStartingConfig();
+				}
+				break;
+			case INIT_OBSER:
+				if(counter < nObservables){
+					nextObservable();
+					counter += 1;
+				} else {
+					state = INIT_DONE;
+					counter = 0;
+					post loadStartingConfig();
+				}
+				break;
+			case INIT_DONE:
+
+				break;
+		}
 	}
 
-	event void Boot.booted(){
-		printf("LOAD DONE\n");
-		post validateConfig();
-
-		// call Timer.startPeriodic( 1000 );
+	void nextState(){
+		error_t res = call ModelConfig.createState(initStates[counter][0], initStates[counter][1], initStates[counter][2]);
+		if( res != SUCCESS )
+			post loadStartingConfig();
 	}
 
-	async event void ModelConfig.syncDone(){
+	void nextTransition(){
+		error_t res = call ModelConfig.addTransition( initTransitions[counter][0], initTransitions[counter][1] );
+		if( res != SUCCESS )
+			post loadStartingConfig();
+	}
 
+	void nextObservable(){
+		error_t res = call ModelConfig.addObservable( initObservables[counter][0], initTransitions[counter][1] );
+		if( res != SUCCESS )
+			post loadStartingConfig();
+	}
+
+	event void ModelConfig.changeDone(error_t error){
+		post loadStartingConfig();
 	}
 
 }

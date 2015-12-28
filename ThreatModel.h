@@ -28,50 +28,61 @@
  *
  */
 
+#ifndef __THREATMODEL_H
+#define __THREATMODEL_H
 
-#include "StorageVolumes.h"
 #include "Wids.h"
 
-configuration WIDSThreatModelC {
+#define TRACE_NUMBERS 10
+#define RESET_COUNT 5
 
-	provides interface Boot as ModelReady;
-	provides interface ModelConfig;
-	provides interface ThreatModel;
+enum model_evaluation_mode {
 
-	uses interface Boot;
-	uses interface Leds;
-	uses interface BusyWait<TMilli, uint16_t>;
+    TIME_SCHEDULED,     // new traces are evaluated periodically
+    EVENT_BASED,        // new traces are evaluated when an observable is notified
+    ON_DEMAND,          // new traces are evaluated only when required
 
-} implementation {
+};
 
-#ifndef HASHMAP_STATE_SIZE
-#define HASHMAP_STATE_SIZE 10
-#endif
+typedef struct wids_obs_list {
 
-	components WIDSThreatModelP as Model, WIDSConfigP as Config;
-	components new SimpleHashMapC(wids_state_t, HASHMAP_STATE_SIZE) as States;
+    uint8_t obs;
+    struct wids_obs_list *next;
 
-	Boot = Config.Boot;
-	Leds = Config.Leds;
-	BusyWait = Config.BusyWait;
+} wids_obs_list_t;
 
-	ModelReady = Config.ModelReady;
-	ModelConfig = Config.ModelConfig;
-	ThreatModel = Model.ThreatModel;
+typedef struct wids_state {
 
+    uint8_t id;
+    wids_attack_t attack;
+    uint8_t alarm_level;
+    struct wids_obs_list *observables;
+    struct wids_state_transition *transitions;
+    
+    bool flag;
+    struct wids_state *next;
 
-	Model.HashMap -> States;
-	Model.HashMapInit -> States;
-	Config.TMConfig -> Model;
-	Config.ThreatModel -> Model;
-	Config.Init -> Model;
+} wids_state_t;
 
-	// Volumes configuration
-	components new ConfigStorageC(VOLUME_CONFIG) as ConfigVolume;
+typedef struct wids_state_transition {
+    
+    wids_state_t *state;
+    struct wids_state_transition *next;
 
+} wids_state_transition_t;
 
-	Config.Mount -> ConfigVolume;
-	Config.ConfigStorage -> ConfigVolume;
+typedef struct wids_threat_model {
 
-	
-}
+    wids_state_t *states;
+
+} wids_threat_model_t;
+
+typedef struct wids_state_trace {
+
+    wids_state_t *state;
+    uint8_t observation_count;
+    uint8_t alarm_value;
+
+} wids_state_trace_t;
+
+#endif // __THREATMODEL_H
