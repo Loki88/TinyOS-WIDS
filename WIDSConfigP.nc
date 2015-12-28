@@ -1,6 +1,7 @@
 
-#include "THREATMODEL.h"
+
 #include "WIDS.h"
+#include "printf.h"
 
 module WIDSConfigP {
 
@@ -12,18 +13,11 @@ module WIDSConfigP {
 	
 	uses interface ThreatModel;
 
-	uses interface ConfigStorage;
-	uses interface Mount;
-
-	uses interface BlockWrite as StateWrite;
-	uses interface BlockRead as StateRead;
-	uses interface BlockWrite as TransitionWrite;
-	uses interface BlockRead as TransitionRead;
-	uses interface BlockWrite as ObservableWrite;
-	uses interface BlockRead as ObservableRead;
+	uses interface BlockWrite as ConfigWrite;
+	uses interface BlockRead as ConfigRead;
 	
 	uses interface Leds;
-	uses interface BusyWait<TMilli, uint32_t>;
+	uses interface BusyWait<TMilli, uint16_t>;
 
 } implementation {
 
@@ -66,7 +60,7 @@ module WIDSConfigP {
 		{ 0x15, 0x16 }, { 0x17, 0x18 },
 	};
 
-	uint8_t initObservables[][2] = {
+	uint8_t initObservables[60][2] = {
 		// CONSTANT_JAMMING
 		{ 0x01, OBS_1  }, { 0x01, OBS_16 }, { 0x02, OBS_1  }, { 0x02, OBS_16 },
 
@@ -110,10 +104,19 @@ module WIDSConfigP {
 
 	enum {
 	    CONFIG_ADDR		= 0,
+	    CONFIG_SIZE		= 7,
+
+	    STATE_ADDR		= 7,
 	    STATE_SIZE 		= 3,
+	    
+	    TRANSITION_ADDR	= 96,
 	    TRANSITION_SIZE	= 2,
+
+	    OBSERVABLE_ADDR = 1057,
 	    OBSERVABLE_SIZE	= 2,
-	    ALARM_CYCLE		= 30,
+	    
+	    ALARM_CYCLE		= 8,
+	    SYNC_DELAY		= 600, // TODO: use a timer to delay synchronization of config in flash
 	};
 
 	typedef struct config {
@@ -124,297 +127,283 @@ module WIDSConfigP {
 
 	config_t m_configuration;
 
-	task void configError(){
+	task void loadConfiguration();
+
+	void configError(){
 		uint8_t i = 0;
+
 		while( i<ALARM_CYCLE ){
 			call Leds.led0Toggle();
 			call Leds.led1Toggle();
 			call Leds.led2Toggle();
 			call BusyWait.wait(500);
+			i += 1;
 		}
-	}
-
-	task void startingConfig(){
-		uint8_t count = 0;
-		wids_state_t *resetState = call ThreatModel.getResetState();
-		
-		m_configuration.n_states = 24;
-		m_configuration.n_transitions = 24;
-		m_configuration.n_observables = 60;
-
-		while ( count < m_configuration.n_states ) {
-			call ModelConfig.createState(initStates[count][0], initStates[count][1], initStates[count][2]);
-			count += 1;
-		}
-
-		count = 0;
-
-		while( count < m_configuration.n_transitions ){
-			call ModelConfig.addTransition( initTransitions[count][0], initTransitions[count][1] );
-			count += 1;
-		}
-
-		count = 0;
-
-		while( count < m_configuration.n_observables ){
-			call ModelConfig.addObservable( initObservables[count][0], initTransitions[count][1] );
-			count += 1;
-		}
-
 	}
 
 	enum {
-		LOAD_NONE 		= 0x00,
-		LOAD_STATE_DONE = 0x01,
-		LOAD_TRANS_DONE = 0x02,
-		LOAD_DONE 		= 0x03,
+		WL_NONE 		= 0x00,
+		LOAD_CONFIG		= 0x01,
+		LOAD_STATE 		= 0x02,
+		LOAD_TRANS 		= 0x03,
+		LOAD_OBSER 		= 0x04,
+		WRITE_CONFIG	= 0x05,
+		WRITE_STATE		= 0x06,
+		WRITE_TRANS		= 0x07,
+		WRITE_OBSER		= 0x08,
 	};
 
-	uint8_t m_loadState = LOAD_NONE;
+	uint8_t m_loadState = WL_NONE;
+
+	void *buffer;
+
+	uint8_t m_count = 0;
+
+	void startingConfig(){
+		uint8_t count = 0;
+		uint8_t states = 24;
+		uint8_t transitions = 24;
+		uint8_t observables = 60;
+
+		m_configuration.n_states = 0;
+		m_configuration.n_transitions = 0;
+		m_configuration.n_observables = 0;
+
+		while ( count < states ) {
+			// printf("inserting state %d for attack %d, alert %d\r\n", initStates[count][0], initStates[count][1], initStates[count][2]);
+			call ModelConfig.createState(initStates[count][0], initStates[count][1], initStates[count][2]);
+			count += 1;
+			call Leds.led0Toggle();
+		}
+
+		count = 0;
+
+		while( count < transitions ){
+			// printf("inserting transition between states %d -> %d\r\n", initTransitions[count][0], initTransitions[count][1]);
+			call ModelConfig.addTransition( initTransitions[count][0], initTransitions[count][1] );
+			count += 1;
+			call Leds.led0Toggle();
+		}
+
+		count = 0;
+
+		while( count < observables ){
+			printf("assigning observable %d to state %d\r\n", initObservables[count][1], initObservables[count][0]);
+			call ModelConfig.addObservable( initObservables[count][0], initTransitions[count][1] );
+			count += 1;
+			call Leds.led0Toggle();
+		}
+
+		printf("OBS_16 %d\r\n", OBS_16);
+
+		m_loadState = WL_NONE;
+		call Leds.led1Toggle();
+		call BusyWait.wait(1000);
+		call Leds.led1Toggle();
+		signal ModelConfig.loadDone();
+	}
+
+	inline void readErr(uint32_t addr, uint32_t len ){
+		call Leds.led2Toggle(); // we were unable to load the element, signal and skip it
+		m_addr = addr+len;
+		m_count += 1;
+		post loadConfiguration();
+	}
 
 	task void loadConfiguration() { // when this is called m_configuration has been set by Config.read
-		void *buff; // it is the pointer for the data on volume
-		m_addr = 0;
-		switch(m_loadState){
-			case LOAD_NONE:
-				call StateRead.read(m_addr, buff, STATE_SIZE);
+		uint8_t size;
+		switch (m_loadState){
+			case LOAD_STATE:
+				if(m_count >= m_configuration.n_states){
+					m_loadState = LOAD_TRANS;
+					m_addr = TRANSITION_ADDR;
+					post loadConfiguration();
+					return;
+				} else {
+					size = STATE_SIZE;
+				}
 				break;
-			case LOAD_STATE_DONE:
-				call TransitionRead.read(m_addr, buff, TRANSITION_SIZE);
+			case LOAD_TRANS:
+				if(m_count >= m_configuration.n_transitions){
+					m_loadState = LOAD_OBSER;
+					m_addr = OBSERVABLE_ADDR;
+					post loadConfiguration();
+					return;
+				} else {
+					size = TRANSITION_SIZE;
+				}
 				break;
-			case LOAD_TRANS_DONE:
-				call ObservableRead.read(m_addr, buff, OBSERVABLE_SIZE);
-				break;
-			case LOAD_DONE:
-
+			case LOAD_OBSER:
+				if(m_count >= m_configuration.n_observables){
+					m_loadState = WL_NONE;
+					signal ModelConfig.loadDone();
+					return;
+				} else {
+					size = OBSERVABLE_SIZE;
+				}
 				break;
 			default:
 				return;
 		}
+
+		if( call ConfigRead.computeCrc( m_addr, size, 0 ) != SUCCESS ){
+			readErr(m_addr, size);
+		}
 	}
 
-	inline void confErrorHandling(){
-		post configError();
-    	post startingConfig();
+	task void confErrorHandling(){
+		configError();
+    	startingConfig();
 	}
 
 	event void Boot.booted(){
 		call Init.init();
-		if (call Mount.mount() != SUCCESS) {
-	    	// configuration storage has not been mounted
-	    	confErrorHandling();
-	    } // else continue in Mount.mountDone()
+		m_addr = CONFIG_ADDR;
+		if (call ConfigRead.computeCrc(m_addr, CONFIG_SIZE, 0) != SUCCESS) {
+	    	// configuration could not be validated
+	    	post confErrorHandling();
+	    } // else continue in ConfigRead.computeCrcDone()
 	}
 
-	event void Mount.mountDone(error_t error) {
-		if (error == SUCCESS) {
-			if (call ConfigStorage.valid() == TRUE) {
-				if (call ConfigStorage.read(CONFIG_ADDR, &m_configuration, sizeof(config_t)) != SUCCESS) {
-					confErrorHandling(); // we were unable to load saved configuration so get the default one
-				}
-				else {
-					post loadConfiguration();
+	command error_t ModelConfig.createState( uint8_t id, wids_attack_t attack, uint8_t alarm_level ){
+		if( call TMConfig.createState(id, attack, alarm_level) != SUCCESS ){
+			uint8_t *buff = (uint8_t*) call ThreatModel.getState(id);
+
+			return call ConfigWrite.write(m_configuration.n_states * STATE_SIZE, (void *)buff, STATE_SIZE);
+		} else {
+			return FAIL;
+		}
+	}
+
+	command error_t ModelConfig.addTransition( uint8_t idFrom, uint8_t idTo ) {
+		if( call TMConfig.addTransition(idFrom, idTo) == SUCCESS ) {
+			uint8_t *buff = malloc( TRANSITION_SIZE );
+			*buff= idFrom;
+			*(buff+1) = idTo;
+
+			return call ConfigWrite.write(m_configuration.n_transitions * TRANSITION_SIZE, buff, TRANSITION_SIZE );
+		} else {
+			return FAIL;
+		}
+	}
+
+	command error_t ModelConfig.addObservable( uint8_t state_id, wids_observable_t obs ){
+		printf("WIDSConfigP -> ModelConfig.addObservable(%d, %d)\r\n", state_id, obs);
+
+		if( call TMConfig.addObservable(state_id, obs) == SUCCESS ) {
+			uint8_t *buff = malloc( OBSERVABLE_SIZE );
+			*buff= state_id;
+			*(buff+1) = obs;
+
+			return call ConfigWrite.write(m_configuration.n_observables * OBSERVABLE_SIZE, buff, OBSERVABLE_SIZE );
+		} else {
+			return FAIL;
+		}
+	}
+
+	command error_t ModelConfig.removeState( uint8_t state_id ){
+
+	}
+
+	event void ConfigRead.readDone(storage_addr_t addr, void* buf, storage_len_t len, 
+		      error_t error){
+
+		if ( error != SUCCESS ){ // skip all because the model could be inconsistent
+			if ( m_loadState == LOAD_CONFIG ){
+				post confErrorHandling(); // configuration has not been read correctly
+			}
+			return;
+		}
+
+		m_addr = addr + len;
+
+		switch (m_loadState){
+			case LOAD_CONFIG:
+				m_configuration.n_states = *((uint8_t*)buf);
+				m_configuration.n_transitions = *(((uint8_t*)buf)+1);
+				m_configuration.n_observables = *(((uint8_t*)buf)+2);
+				m_loadState = LOAD_STATE;
+				m_count = 0;
+				break;
+			case LOAD_STATE:
+				call TMConfig.createState( *((uint8_t*)buf), *(((uint8_t*)buf)+1), *(((uint8_t*)buf)+2) );
+				m_count += 1;
+				break;
+			case LOAD_TRANS:
+				call TMConfig.addTransition( *((uint8_t*)buf), *(((uint8_t*)buf)+1) );
+				m_count += 1;
+				break;
+			case LOAD_OBSER:
+				call TMConfig.addObservable( *((uint8_t*)buf), *(((uint8_t*)buf)+1) );
+				m_count += 1;
+				break;
+			default:
+				return;
+		}
+		
+		// continue the reading
+		post loadConfiguration();
+	}
+
+	event void ConfigRead.computeCrcDone(storage_addr_t addr, storage_len_t len,
+			    uint16_t crc, error_t error){
+		if (error == SUCCESS) { // CRC has been computed
+			if ( crc == 0 ) { // data is valid
+				if(m_loadState == WL_NONE){
+					m_loadState = LOAD_CONFIG;
+					if (call ConfigRead.read(CONFIG_ADDR, buffer, CONFIG_SIZE) != SUCCESS) {
+						post confErrorHandling(); // we were unable to load saved configuration so get the default one
+					} else { // else continues in ConfigRead.readDone()
+
+					}
+				} else {
+					if (call ConfigRead.read(addr, buffer, len) != SUCCESS) {
+						readErr(addr, len);
+					} else { // else continues in ConfigRead.readDone()
+
+					}
 				}
 			} else { // configuration is not valid
-				confErrorHandling();
+				post confErrorHandling();
 			}
 	    } else { // it was not possible to mount the volume
-	    	confErrorHandling();
+	    	post confErrorHandling();
 	    }
 	}
 
-	// async command error_t ModelConfig.finalize(){
-	// 	return call StateWrite.sync();
-	// }
-
-	async command error_t ModelConfig.createState( uint8_t id, wids_attack_t attack, uint8_t alarm_level ){
-		uint8_t *buff;
-
-		if( call TMConfig.createState(id, attack, alarm_level) != SUCCESS ){
-			return FAIL;
-		}
-
-		buff = (uint8_t*) call ThreatModel.getState( id );
-
-		return call StateWrite.write( m_configuration.n_states * STATE_SIZE, (void *)buff, STATE_SIZE);
-	}
-
-	async command error_t ModelConfig.addTransition( uint8_t idFrom, uint8_t idTo ) {
-		uint8_t *buff;
-
-		if( call TMConfig.addTransition(idFrom, idTo) != SUCCESS ) {
-			return FAIL;
-		}
-
-		buff = malloc( TRANSITION_SIZE );
-		*buff= idFrom;
-		*(buff+1) = idTo;
-
-		return call TransitionWrite.write( m_configuration.n_transitions * TRANSITION_SIZE, buff, TRANSITION_SIZE );
-	}
-
-	async command error_t ModelConfig.addObservable( uint8_t state_id, wids_observable_t obs ){
-		uint8_t *buff;
-
-		if( call TMConfig.addTransition(state_id, obs) != SUCCESS ) {
-			return FAIL;
-		}
-
-		buff = malloc( OBSERVABLE_SIZE );
-		*buff= state_id;
-		*(buff+1) = obs;
-
-		return call TransitionWrite.write( m_configuration.n_observables * OBSERVABLE_SIZE, buff, OBSERVABLE_SIZE );	
-	}
-
-	async command error_t ModelConfig.removeState( uint8_t state_id ){
-
-	}
-
-	event void StateRead.readDone(storage_addr_t addr, void* buf, storage_len_t len, 
-		      error_t error){
-		if ( error != SUCCESS ){ // skip all because the model could be inconsistent
-
-		}
-
-		// load the state and read the next one
-		call ModelConfig.createState( *((uint8_t*)buf), *(((uint8_t*)buf)+1), *(((uint8_t*)buf)+2) );
-		if ( addr < m_configuration.n_states * STATE_SIZE )
-			call StateRead.read( addr + STATE_SIZE, buf, STATE_SIZE );
-		else {
-			m_loadState = LOAD_STATE_DONE;
-			post loadConfiguration();
-		}
-	}
-
-	event void StateRead.computeCrcDone(storage_addr_t addr, storage_len_t len,
-			    uint16_t crc, error_t error){
-
-	}
-
-	event void StateWrite.writeDone(storage_addr_t addr, void* buf, storage_len_t len,
+	event void ConfigWrite.writeDone(storage_addr_t addr, void* buf, storage_len_t len,
 		       error_t error){
-		if(error != SUCCESS){
+		printf("WRITTEN");
+		if(error != SUCCESS){ // data has not been written, the state could not be restored after poweroff
 
 		} else {
-			m_configuration.n_states += 1;
+			switch(m_loadState){
+				case WRITE_STATE:
+					m_configuration.n_states += 1;
+					break;
+				case WRITE_TRANS:
+					m_configuration.n_transitions += 1;
+					break;
+				case WRITE_OBSER:
+					m_configuration.n_observables += 1;
+					break;
+			}
+			// TODO: delay timeout to sync -> on timeout write m_configuration
 		}
 
 	}
 
-	event void StateWrite.eraseDone(error_t error){
+	event void ConfigWrite.eraseDone(error_t error){
 
 	}
 
-	event void StateWrite.syncDone(error_t error){
-		if( error != SUCCESS ){
-
-		} else
-			call TransitionWrite.sync();
+	event void ConfigWrite.syncDone(error_t error){
+		
 	}
 
-	event void TransitionRead.readDone(storage_addr_t addr, void* buf, storage_len_t len, 
-		      error_t error){
-		if ( error != SUCCESS ){ // skip all because the model could be inconsistent
-
-		}
-
-		// load the state and read the next one
-		call ModelConfig.addTransition( *((uint8_t*)buf), *(((uint8_t*)buf)+1) );
-		if ( addr < m_configuration.n_transitions * TRANSITION_SIZE )
-			call StateRead.read( addr + TRANSITION_SIZE, buf, TRANSITION_SIZE );
-		else {
-			m_loadState = LOAD_TRANS_DONE;
-			post loadConfiguration();
-		}
+	default event void ModelConfig.loadDone(){
+		
 	}
 
-	event void TransitionRead.computeCrcDone(storage_addr_t addr, storage_len_t len,
-			    uint16_t crc, error_t error){
-
-	}
-
-	event void TransitionWrite.writeDone(storage_addr_t addr, void* buf, storage_len_t len,
-		       error_t error){
-		if(error != SUCCESS){
-
-		} else {
-			m_configuration.n_transitions += 1;
-		}
-	}
-
-	event void TransitionWrite.eraseDone(error_t error){
-
-	}
-
-	event void TransitionWrite.syncDone(error_t error){
-		if( error != SUCCESS ){
-
-		} else
-			call ObservableWrite.sync();
-	}
-
-	event void ObservableRead.readDone(storage_addr_t addr, void* buf, storage_len_t len, 
-		      error_t error){
-		if ( error != SUCCESS ){ // skip all because the model could be inconsistent
-
-		}
-
-		// load the state and read the next one
-		call ModelConfig.addObservable( *((uint8_t*)buf), *(((uint8_t*)buf)+1) );
-		if ( addr < m_configuration.n_observables * OBSERVABLE_SIZE )
-			call StateRead.read( addr + OBSERVABLE_SIZE, buf, OBSERVABLE_SIZE );
-		else {
-			m_loadState = LOAD_DONE;
-			post loadConfiguration();
-		}
-	}
-
-	event void ObservableRead.computeCrcDone(storage_addr_t addr, storage_len_t len,
-			    uint16_t crc, error_t error){
-
-	}
-
-	event void ObservableWrite.writeDone(storage_addr_t addr, void* buf, storage_len_t len,
-		       error_t error){
-		if(error != SUCCESS){
-
-		} else {
-			m_configuration.n_observables += 1;
-		}
-	}
-
-	event void ObservableWrite.eraseDone(error_t error){
-
-	}
-
-	event void ObservableWrite.syncDone(error_t error){
-		if( error != SUCCESS ){
-
-		} else {
-			// write done
-			call ConfigStorage.write( CONFIG_ADDR, &m_configuration, sizeof(m_configuration) );
-		}
-	}
-
-	// TODO: aggiungere l'interfaccia per il ConfigStorage, sistemare i nomi e le interfacce presenti, 
-	// ricontrollare la sequenza di stati e provare la compilazione, quindi fare in modo che sia testabile
-	// sui nodi: a quel punto si disporrebbe del modello e di un metodo per la sua inizializzazione e
-	// customizzazione a runtime
-
-
-	event void ConfigStorage.readDone(storage_addr_t addr, void* buf, storage_len_t len, 
-		      error_t error){
-
-	}
-
-	event void ConfigStorage.writeDone(storage_addr_t addr, void* buf, storage_len_t len, 
-			       error_t error){
-
-	}
-
-	event void ConfigStorage.commitDone(error_t error){
-
-	}
-
+	event void TMConfig.loadDone(){} // does nothing
 }

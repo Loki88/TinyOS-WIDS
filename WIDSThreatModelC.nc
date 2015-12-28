@@ -2,7 +2,7 @@
 
 
 #include "StorageVolumes.h"
-#include "THREATMODEL.h"
+#include "WIDS.h"
 
 configuration WIDSThreatModelC {
 
@@ -11,7 +11,7 @@ configuration WIDSThreatModelC {
 
 	uses interface Boot;
 	uses interface Leds;
-	uses interface BusyWait<TMilli, uint32_t>;
+	uses interface BusyWait<TMilli, uint16_t>;
 
 } implementation {
 
@@ -22,34 +22,25 @@ configuration WIDSThreatModelC {
 	components WIDSThreatModelP as Model, WIDSConfigP as Config;
 	components new SimpleHashMapC(wids_state_t, HASHMAP_STATE_SIZE) as States;
 
-	Boot = WIDSConfigP.Boot;
-	Leds = WIDSConfigP.Leds;
-	BusyWait = WIDSConfigP.BusyWait;
+	Boot = Config.Boot;
+	Leds = Config.Leds;
+	BusyWait = Config.BusyWait;
 
 	ModelConfig = Config.ModelConfig;
 	ThreatModel = Model.ThreatModel;
 
+
 	Model.HashMap -> States;
 	Model.HashMapInit -> States;
 	Config.TMConfig -> Model;
-
+	Config.ThreatModel -> Model;
+	Config.Init -> Model;
 
 	// Volumes configuration
-	components new ConfigStorageC(VOLUME_CONFIG) as ConfigVolume;
+	components new BlockStorageC(VOLUME_CONFIG) as ConfigVolume;
 
-	components new BlockStorageC(VOLUME_OBSERVABLES) as ObservablesVolume;
-	components new BlockStorageC(VOLUME_STATES) as StatesVolume;
-	components new BlockStorageC(VOLUME_TRANSITIONS) as TransitionsVolume;
-	
+	Config.ConfigWrite -> ConfigVolume;
+	Config.ConfigRead -> ConfigVolume;
 
-	Config.ConfigStorage -> ConfigVolume;
-	Config.Mount -> ConfigVolume;
-
-	Config.StateWrite -> StatesVolume;
-	Config.StateRead -> StatesVolume;
-	Config.TransitionWrite -> TransitionsVolume;
-	Config.TransitionRead -> TransitionsVolume;
-	Config.ObservableWrite -> ObservablesVolume;
-	Config.ObservableRead -> ObservablesVolume;
 	
 }

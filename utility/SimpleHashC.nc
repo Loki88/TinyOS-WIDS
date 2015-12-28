@@ -12,6 +12,9 @@ generic module SimpleHashC(int mod) {
 
 
 	async command bool Hash.compare( uint8_t key1, uint8_t key2 ){
-		return key1 == key2;
+		if(key1 == key2)
+			return TRUE;
+		else
+			return FALSE;
 	}
 }

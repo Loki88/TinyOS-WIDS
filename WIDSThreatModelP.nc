@@ -1,6 +1,6 @@
 
-#include "THREATMODEL.h"
-#include "UTIL.h"
+#include "WIDS.h"
+#include "printf.h"
 
 module WIDSThreatModelP {
 
@@ -15,51 +15,64 @@ module WIDSThreatModelP {
 
 	norace uint8_t m_id;
 
-	inline void stateInit(wids_state_t *state){
-		state->id = 0;
-		state->attack = NO_ATTACK;
-		state->alarm_level = 0;
-		state->observables = NULL;
-		state->transitions = NULL;
-		state->next = NULL; // TODO: verificare se è possibile rimuovere tale campo
-	}
-
 	command error_t Init.init(){
 		call HashMapInit.init();
 		call ModelConfig.createState(0, NO_ATTACK, 0);
+		return SUCCESS;
 	}
 
-	async command error_t ModelConfig.createState(uint8_t id, wids_attack_t att, uint8_t alarm){
+	command error_t ModelConfig.createState(uint8_t id, wids_attack_t att, uint8_t alarm){
+
 		wids_state_t *state = malloc(sizeof(wids_state_t));
 		state->id = id;
 		state->attack = att;
 		state->alarm_level = alarm;
-		return call HashMap.insert(state, id);
+		state->observables = NULL;
+		state->transitions = NULL;
+		state->next = NULL;
+
+		if(call HashMap.insert(state, id) != SUCCESS){
+			free( state );
+			return FAIL;
+		}
+		return SUCCESS;
 	}
 
-	async command error_t ModelConfig.addTransition( uint8_t idFrom, uint8_t idTo ) {
+	command error_t ModelConfig.addTransition( uint8_t idFrom, uint8_t idTo ){
 		wids_state_t *from = call HashMap.get(idFrom);
 		wids_state_t *to = call HashMap.get(idTo);
-		if (from != NULL && to != NULL){
+
+		if( from != NULL && to != NULL ){
 			wids_state_transition_t *transition = malloc(sizeof(wids_state_transition_t));
 			transition->state = to;
 			transition->next = from->transitions;
 			from->transitions = transition;	
-			return SUCCESS;
-		}
-		else
-			return FALSE;
+			return SUCCESS;			
+		} else {
+			return FAIL;
+		}	
 	}
 
-	async command error_t ModelConfig.addObservable( uint8_t stateId, wids_observable_t obs ){
-		
+	command error_t ModelConfig.addObservable( uint8_t stateId, wids_observable_t obs ){
+		wids_state_t *state = call HashMap.get( stateId );
+		printf("WIDSThreatModelP -> ModelConfig.addObservable(%d, %d)\r\n", stateId, obs);
+
+		if( state != NULL ) {
+			wids_obs_list_t *obsEntry = malloc(sizeof(wids_obs_list_t));
+			obsEntry->obs = obs;
+			obsEntry->next = state->observables;
+			state->observables = obsEntry;
+			return SUCCESS;
+		} else {
+			return FAIL;
+		}
 	}
 
 	void visitSubtree( wids_state_t *curState ){
 
 	}
 
-	async command error_t ModelConfig.removeState( uint8_t stateId ) {
+	command error_t ModelConfig.removeState( uint8_t stateId ) {
 		// TODO: first unlink state from graph, then free the memory
 		// TODO: la rimozione dello stato richiede la visita dell'intero grafo per determinare quali archi sino
 		// 		entranti in esso e quindi rimuovere ogni riferimento dal modello
@@ -108,5 +121,7 @@ module WIDSThreatModelP {
 
 	}
 
+	default event void ModelConfig.loadDone(){
 
+	}
 }

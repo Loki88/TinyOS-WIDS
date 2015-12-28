@@ -28,9 +28,7 @@
 
 *****************************************************************************************/
 
-#include "UTIL.h"
-
-generic module HashMapC(typedef key_type, typedef el_type, int n) {
+generic module HashMapC(typedef key_type, typedef el_type, uint8_t n) {
 
 	provides interface HashMap<key_type, el_type>;
 	provides interface Init;
@@ -40,57 +38,74 @@ generic module HashMapC(typedef key_type, typedef el_type, int n) {
 
 } implementation {
 
-	list_t *hashmap[n];
+	typedef struct list {
+		el_type *element;
+		key_type key;
+		struct list *next;
+	} list_t;
+
+	norace list_t *hashmap[n];
+
+	uint8_t length = n;
 
 	command error_t Init.init() {
 		uint8_t i = 0;
-		while( i<n ){
+
+		while( i < length ){
 			hashmap[i] = NULL;
 			i += 1;
 		}
-	}
-
-	async command error_t HashMap.insert( el_type *element, key_type key ) {
-		uint8_t index = call Hash.getHash( key );
-		list_t *tmp = hashmap[ index ];
-		list_t newEl;
-
-		newEl.element = (void*) element;
-		newEl.key = (void*) &key;
-		newEl.next = tmp;
-
-		hashmap[index] = &newEl;
-
 		return SUCCESS;
 	}
 
-	async command el_type* HashMap.get( key_type key ) {
-		uint8_t index = call Hash.getHash( key );
-		list_t *tmp = hashmap[ index ];
+	async command error_t HashMap.insert( el_type *element, key_type key ) {
+		if ( call HashMap.get(key) == NULL ) {
+			uint8_t i = call Hash.getHash( key );
 
-		while ( tmp->next != NULL && call Hash.compare(*((key_type*) tmp->key), key ) == FALSE ) {
-			tmp = tmp->next;
+			list_t *newEl = malloc( sizeof(list_t) );
+			newEl->element = (el_type*)element;
+			newEl->key = key;
+			newEl->next = hashmap[i];
+			hashmap[i] = newEl;
+
+			return SUCCESS;	
+		
+		} else { // if an element with the key exist override it
+			return FAIL;	
+		}
+	}
+
+	async command el_type* HashMap.get( key_type key ) {
+		uint8_t i = call Hash.getHash( key );
+		list_t *tmp = hashmap[ i ];
+
+		while ( tmp != NULL ) {
+			if ( call Hash.compare(tmp->key, key ) == TRUE ){
+				return tmp->element;
+			}
+			else 
+				tmp = tmp->next;
 		}
 
-		return tmp->element;
+		return NULL;
 	}
 
 	async command error_t HashMap.remove( key_type key ) {
 
-		uint8_t index = call Hash.getHash( key );
-		list_t *l = hashmap[ index ];
+		uint8_t i = call Hash.getHash( key );
+		list_t *l = hashmap[ i ];
 		list_t *tmp = l;
-		list_t *prev = NULL;
+		list_t *pre = NULL;
 
-		while ( tmp != NULL && call Hash.compare(*((key_type*) tmp->key), key ) == FALSE ) {
-			prev = tmp;
+		while ( tmp != NULL && call Hash.compare(tmp->key, key ) == FALSE ) {
+			pre = tmp;
 			tmp = tmp->next;
 		}
 
 		if ( tmp == NULL )
 			return FAIL;
 		else {
-			prev->next = tmp->next;
+			pre->next = tmp->next;
 			return SUCCESS;
 		}
 

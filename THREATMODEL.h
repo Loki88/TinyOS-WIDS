@@ -46,7 +46,7 @@ enum model_evaluation_mode {
 
 typedef struct wids_obs_list {
 
-    wids_observable_t obs;
+    uint8_t obs;
     struct wids_obs_list *next;
 
 } wids_obs_list_t;
@@ -56,7 +56,7 @@ typedef struct wids_state {
     uint8_t id;
     wids_attack_t attack;
     uint8_t alarm_level;
-    wids_obs_list_t *observables;
+    struct wids_obs_list *observables;
     struct wids_state_transition *transitions;
     
     struct wids_state *next;

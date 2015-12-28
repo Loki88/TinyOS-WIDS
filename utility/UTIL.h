@@ -2,13 +2,13 @@
 #define __UTIL_H
 
 
-typedef struct list {
+// typedef struct list {
 
-	void *element;
-	void *key;
-	struct list *next;
+// 	void *element;
+// 	void *key;
+// 	struct list *next;
 
-} list_t;
+// } list_t;
 
 
 typedef struct linked_list {
