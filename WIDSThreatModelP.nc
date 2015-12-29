@@ -48,8 +48,16 @@ module WIDSThreatModelP {
 
 	command error_t Init.init(){
 		call HashMapInit.init();
-		call ModelConfig.createState(0, NO_ATTACK, 0);
-		return SUCCESS;
+		if(call ModelConfig.createState(0, NO_ATTACK, 0) == SUCCESS){
+			wids_state_t *reset = call ThreatModel.getResetState();
+			reset -> next = NULL;
+			reset->observables = NULL;
+			reset->transitions = NULL;
+			return SUCCESS;
+		} else {
+			return FAIL;
+		}
+		
 	}
 
 	command error_t ModelConfig.createState(uint8_t id, wids_attack_t att, uint8_t alarm){
@@ -90,7 +98,6 @@ module WIDSThreatModelP {
 
 	command error_t ModelConfig.addObservable( uint8_t stateId, wids_observable_t obs ){
 		wids_state_t *state = call HashMap.get( stateId );
-		printf("WIDSThreatModelP -> ModelConfig.addObservable(%d, %d)\r\n", stateId, obs);
 
 		if( state != NULL ) {
 			wids_obs_list_t *obsEntry = malloc(sizeof(wids_obs_list_t));

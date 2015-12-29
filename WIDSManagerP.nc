@@ -39,8 +39,6 @@ module WIDSManagerP {
 
 	uses interface Queue<wids_state_trace_t*> as Traces[uint8_t id];
 
-	// uses interface Queue<wids_observable_t> as ObsQueue[uint8_t id];
-
 	uses interface HashMap<uint8_t, wids_state_trace_t*> as HashMap;
 
 } implementation {

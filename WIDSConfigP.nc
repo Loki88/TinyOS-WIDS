@@ -52,7 +52,8 @@ module WIDSConfigP {
 
 	uint32_t m_addr;
 	uint8_t buffer[4];
-	bool m_sync = FALSE;
+	norace bool m_sync = FALSE;
+	norace bool mounted = FALSE;
 
 	uint8_t initStates[24][3] = {
 		{ 0x01, CONSTANT_JAMMING, LOW_LEV_THREAT },
@@ -159,7 +160,7 @@ module WIDSConfigP {
 
 
 	task void loadModel();
-	task void syncStates();
+	task void syncModel();
 
 	void configError(){
 		uint8_t i = 0;
@@ -243,15 +244,19 @@ module WIDSConfigP {
 	event void Boot.booted(){
 		call Init.init();
 		if (call Mount.mount() != SUCCESS) {
+			printf("MOUNT NOT ACCEPTED\n");
 			post confErrorHandling();
 	    } // else continue in Mount.mountDone()
 	}
 
 	event void Mount.mountDone(error_t error) {
 		if( error == SUCCESS ){
+			mounted = TRUE;
 			m_addr = CONFIG_ADDR;
+			m_loadState = LOAD_CONFIG;
 			post loadModel();
 		} else { // not mounted, load base configuration
+			printf("MOUNT FAILED\n");
 			startingConfig();
 		}
 	}
@@ -287,28 +292,31 @@ module WIDSConfigP {
 					post loadModel();
 					break;
 				case LOAD_STATE:
-					call ModelConfig.createState(*((uint8_t*)buf), *((uint8_t*)buf+1), *((uint8_t*)buf+2));
+					call TMConfig.createState(*((uint8_t*)buf), *((uint8_t*)buf+1), *((uint8_t*)buf+2));
 					m_count += 1;
 					if ( m_count >= m_configuration.n_states ){
 						m_loadState = LOAD_TRANS;
 						m_count = 0;
 					}
+					post loadModel();
 					break;
 				case LOAD_TRANS:
-					call ModelConfig.addTransition(*((uint8_t*)buf), *((uint8_t*)buf+1));
+					call TMConfig.addTransition(*((uint8_t*)buf), *((uint8_t*)buf+1));
 					m_count += 1;
 					if ( m_count >= m_configuration.n_transitions ){
 						m_loadState = LOAD_OBSER;
 						m_count = 0;
 					}
+					post loadModel();
 					break;
 				case LOAD_OBSER:
-					call ModelConfig.addObservable(*((uint8_t*)buf), *((uint8_t*)buf+1));
+					call TMConfig.addObservable(*((uint8_t*)buf), *((uint8_t*)buf+1));
 					m_count += 1;
 					if ( m_count >= m_configuration.n_observables ){
 						m_loadState = WL_NONE;
 						m_count = 0;
 					}
+					post loadModel();
 					break;
 			}
 		}
@@ -357,53 +365,131 @@ module WIDSConfigP {
 		}
 	}
 
-	wids_state_t *m_state = NULL;
+	void *m_buffer = NULL;
+	wids_state_t *m_state;
 
 	command error_t ModelConfig.sync( ){
-		if( m_sync == FALSE )
+		printf("M_Sync from ModelConfig.sync is %d\n", m_sync);
+		if( m_sync == FALSE)
 			return EALREADY;
-		else {
+		else if( mounted == FALSE ){ // volume is not mounted and we can't write on it
+			return FAIL;
+		} else {
 			m_state = call ThreatModel.getResetState();
-			m_count = 0;
-			post syncStates(); // TODO: write syncStates
+			m_buffer = m_state -> transitions; // don't store reset state, but its transitions to other states
+
+			m_configuration.n_states = 0; // reset configuration to count the real number of object written in memory
+			m_configuration.n_transitions = 0;
+			m_configuration.n_observables = 0;
+
+			m_loadState = WRITE_TRANS;
+			post syncModel();
+			return SUCCESS;
 		}
 	}
 
-	task void syncStates(){
+	void syncStates(){
+		if(m_state != NULL){
+				printf("Sync state %d\n", m_state->id);
+				buffer[0] = m_state -> id;
+				buffer[1] = m_state -> attack;
+				buffer[2] = m_state -> alarm_level;
+				m_addr = STATE_ADDR + m_configuration.n_states*STATE_SIZE;
+				call ConfigStorage.write(m_addr, &buffer, STATE_SIZE);
+		} else {
+			m_loadState = WL_NONE;
+			post syncModel();
+		}
+	}
+
+	void syncTransitions(){
+		printf("TRANSITION\n");
+		if(((wids_state_transition_t*)m_buffer) != NULL){
+			buffer[0] = m_state -> id;
+			buffer[1] = ((wids_state_transition_t*)m_buffer)->state->id;
+			m_addr = TRANSITION_ADDR + m_configuration.n_transitions*TRANSITION_SIZE;
+			call ConfigStorage.write(m_addr, &buffer, TRANSITION_SIZE);
+		} else {
+			printf("FOUND NULL\n");
+			m_loadState = WRITE_OBSER;
+			m_buffer = m_state->observables;
+			post syncModel();
+		}
+	}
+
+	void syncObservables(){
+		if(((wids_obs_list_t*)m_buffer) != NULL){
+			buffer[0] = m_state -> id;
+			buffer[1] = ((wids_obs_list_t*)m_buffer)->obs;
+			m_addr = OBSERVABLE_SIZE + m_configuration.n_observables*OBSERVABLE_SIZE;
+			call ConfigStorage.write(m_addr, &buffer, OBSERVABLE_SIZE);
+		} else {
+			m_loadState = WRITE_STATE;
+			post syncModel();
+		}
+	}
+
+	task void syncModel(){
 		switch(m_loadState){
 			case WRITE_STATE:
-				buffer[0] = m_state -> id;
-				buffer[1] = m_state -> attack;
-				buffer[2] = m_state -> alarm_level;
-				call ConfigStorage.write(STATE_ADDR + m_count*STATE_SIZE, &buffer, STATE_SIZE);
+				m_state = m_state->next;
+				syncStates();
 				break;
-			case WRITE_TRANS: // TODO: necessario capire come scorrere le transactions mentre si scrivono i valori e replicare per gli observables
-				buffer[0] = m_state -> id;
-				buffer[1] = m_state -> attack;
-				call ConfigStorage.write(STATE_ADDR + m_count*STATE_SIZE, &buffer, STATE_SIZE);
+			case WRITE_TRANS:
+				syncTransitions();
 				break;
 			case WRITE_OBSER:
-				buffer[0] = m_state -> id;
-				buffer[1] = m_state -> attack;
-				buffer[2] = m_state -> alarm_level;
-				call ConfigStorage.write(STATE_ADDR + m_count*STATE_SIZE, &buffer, STATE_SIZE);
+				syncObservables();
 				break;
 			case WL_NONE:
-				if(m_state->next != NULL){
-					m_state = m_state->next;
-					m_loadState = WRITE_STATE;
-				}
+				call ConfigStorage.write(CONFIG_ADDR, &m_configuration, CONFIG_SIZE);
 				break;
 		}
 	}
 
 	event void ConfigStorage.writeDone(storage_addr_t addr, void* buf, storage_len_t len, 
 		       error_t error){
-
+		if(error == SUCCESS){
+			switch(m_loadState){
+				case WRITE_STATE:
+					m_configuration.n_states += 1;
+					m_loadState = WRITE_TRANS;
+					m_buffer = m_state->transitions;
+					post syncModel();
+					break;
+				case WRITE_TRANS:
+					m_configuration.n_transitions += 1;
+					m_buffer = ((wids_state_transition_t*)m_buffer)->next;
+					post syncModel();
+					break;
+				case WRITE_OBSER:
+					m_configuration.n_observables += 1;
+					m_buffer = ((wids_obs_list_t*)m_buffer)->next;
+					post syncModel();
+					break;
+				case WL_NONE:
+					if(call ConfigStorage.commit() != SUCCESS){
+						// handle commit failure
+					}
+					break;
+				default:
+					return;
+			}
+			printf("Config: states %d, transitions %d, observables %d\n", m_configuration.n_states, 
+				m_configuration.n_transitions, m_configuration.n_observables);
+		} else {
+			// handle failure
+		}
 	}
 
 	event void ConfigStorage.commitDone(error_t error){
+		if(error == SUCCESS){
+			printf("commitDone\n");
+			m_sync = FALSE;
+			signal ModelConfig.syncDone();
+		} else {
 
+		}
 	}
 
 	async event void TMConfig.syncDone(){
