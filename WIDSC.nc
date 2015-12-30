@@ -29,18 +29,52 @@
  */
 
  
-#include "WIDS.h"
+#include "Wids.h"
 
 configuration WIDSC {
 		
 	provides {
-
+		interface Boot as Ready;
+		interface AlarmGeneration;
+		interface ThreatModel;
+		interface ModelConfig;
+		
+	}
+	uses {
+		interface Boot;
+		interface Leds;
+		interface BusyWait<TMilli, uint16_t>;
+		interface Notify<wids_observable_t> as Observable;
 	}
 
 
 } implementation {
 
-	components new HashMapC(uint8_t, wids_state_trace_t*, TRACE_NUMBERS), WIDSManagerP, WIDSThreatModelP;
-	components 
+	#ifndef TRACE_NUMBERS
+	#define TRACE_NUMBERS 10
+	#endif
 
+	components new SimpleHashMapC(wids_state_trace_t, TRACE_NUMBERS) as HMap, WIDSManagerP;
+	components new QueueC(wids_state_trace_t*, TRACE_NUMBERS);
+	components new QueueC(wids_observable_t, TRACE_NUMBERS) as ObservableQueue;
+	
+	components WIDSThreatModelC as Model;
+
+	AlarmGeneration = WIDSManagerP;
+	ThreatModel = Model.ThreatModel;
+	ModelConfig = Model.ModelConfig;
+	Ready = Model;
+
+
+	Observable = WIDSManagerP.Notify;
+	Boot = Model.Boot;	
+	Leds = Model.Leds;
+	BusyWait = Model.BusyWait;
+	Observable = WIDSManagerP.Notify;
+
+
+	WIDSManagerP.ThreatModel -> Model;
+	WIDSManagerP.Traces -> QueueC;
+	WIDSManagerP.HashMap -> HMap;
+	WIDSManagerP.Observables -> ObservableQueue;
 }

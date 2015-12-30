@@ -168,7 +168,7 @@ module WIDSThreatModelP {
 	async command linked_list_t* ThreatModel.getObservedStates( wids_state_t *state, wids_observable_t observable ) {
 
 		wids_state_transition_t *neighbour = state->transitions; // visit all the states near the current one
-		linked_list_t *observedStates = NULL, *tmp;
+		linked_list_t *observedStates = NULL, *tmp = NULL;
 
 		while( neighbour != NULL ) {
 			wids_obs_list_t *observables = neighbour->state->observables;

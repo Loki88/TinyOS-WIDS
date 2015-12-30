@@ -28,18 +28,20 @@
  *
  */
 
-#include "WIDS.h"
-#include "THREATMODEL.h"
+#include "Wids.h"
+#include "ThreatModel.h"
 
 module WIDSManagerP {
 
+	provides interface AlarmGeneration;
+
 	uses interface ThreatModel;
+	uses interface Notify<wids_observable_t>;
+	uses interface Queue<wids_state_trace_t*> as Traces;
+	uses interface Queue<wids_observable_t> as Observables;
 
-	uses interface Notify<wids_observable_t> as Detection[uint8_t id];
-
-	uses interface Queue<wids_state_trace_t*> as Traces[uint8_t id];
-
-	uses interface HashMap<uint8_t, wids_state_trace_t*> as HashMap;
+	// this keep trace of all active traces
+	uses interface HashMap<uint8_t, wids_state_trace_t> as HashMap;
 
 } implementation {
 
@@ -47,54 +49,54 @@ module WIDSManagerP {
 
 	norace uint8_t reset = 0;
 
-	norace wids_observable_t m_observable;
+	wids_state_trace_t *alarmTrace;
 
-	norace uint8_t m_id;
+	void updateTraces(wids_observable_t obs) {
 
-	task void updateTraces( ) {
-
-		uint8_t size = call Traces[m_id].size(), i = 0;
-		wids_state_trace_t *alarmTrace = NULL;
+		uint8_t size = call Traces.size(), i = 0;
+		// wids_observable_t obs = Observables.dequeue();
+		alarmTrace = NULL;
 
 		while( i < size ) {
-			wids_state_trace_t *tmp = call Traces[m_id].dequeue();
-			call HashMap.remove(tmp->state->id);
+			linked_list_t *newStates;
+
+			wids_state_trace_t *tmp = call Traces.dequeue();
+			call HashMap.remove(tmp->state->id); 
 
 			// manage return and update, remove or insert traces into the priority queue
-			linked_list_t* newStates = call ThreatModel.getObservedStates( tmp->state, obs );
+			newStates = call ThreatModel.getObservedStates( tmp->state, obs );
 
 			while( newStates != NULL ) {
-
 				// the init trace has been removed, but we can have arrived to another state
-				wids_state_trace_t *traceTmp = call HashMap.get(newStates->id);
+				wids_state_trace_t *traceTmp = call HashMap.get(((wids_state_t*)newStates->element)->id);
 
-				if( hTmp != NULL ) { // the state is yet in a Queue
+				if( traceTmp != NULL ) { // the state is yet in a Queue
 
-					hTmp->observation_count = 0; // reset the observation count and then update the alarm score
-					if (hTmp->alarm_value > tmp->alarm_value){
-						hTmp->alarm_value += newStates->alarm_level;
+					traceTmp->observation_count = 0; // reset the observation count and then update the alarm score
+					if (traceTmp->alarm_value > tmp->alarm_value){
+						traceTmp->alarm_value += ((wids_state_t*)newStates->element)->alarm_level;
 					} else {
-						hTmp->alarm_value = tmp->alarm_value + newStates->alarm_level;
+						traceTmp->alarm_value = tmp->alarm_value + ((wids_state_t*)newStates->element)->alarm_level;
 					}
 					
-				} else if( newStates->id == tmp->state->id ) { 	// the state is not in another Queue but
-																// the new state is the same
-					hTmp = tmp;
-					hTmp->observation_count += 1;
-					call Traces[m_id].enqueue(hTmp);
-					call HashMap.insert(hTmp, hTmp->state->id);
+				} else if( ((wids_state_t*)newStates->element)->id == tmp->state->id ) { 	// the state is not in another trace but
+																// the new state is the same of the old trace
+					traceTmp = tmp;
+					traceTmp->observation_count += 1;
+					call Traces.enqueue(traceTmp);
+					call HashMap.insert(traceTmp, traceTmp->state->id);
 
 				} else {	// there is a new state so it is needed to create a new trace
-					hTmp = malloc(sizeof(wids_state_trace_t));
-					hTmp->state = newStates;
-					hTmp->observation_count = 0;
-					hTmp->alarm_value = tmp->alarm_value + newStates->alarm_level;
-					call Traces[m_id].enqueue(hTmp);
-					call HashMap.insert(hTmp, hTmp->state->id);
+					traceTmp = malloc(sizeof(wids_state_trace_t));
+					traceTmp->state = ((wids_state_t*)newStates->element);
+					traceTmp->observation_count = 0;
+					traceTmp->alarm_value = tmp->alarm_value + ((wids_state_t*)newStates->element)->alarm_level;
+					call Traces.enqueue(traceTmp);
+					call HashMap.insert(traceTmp, traceTmp->state->id);
 				}
 
-				if( alarmTrace == NULL || hTmp->alarm_value > alarmTrace->alarm_value ){
-					alarmTrace = hTmp; // update the trace with max alarm score
+				if( alarmTrace == NULL || traceTmp->alarm_value > alarmTrace->alarm_value ){
+					alarmTrace = traceTmp; // update the trace with max alarm score
 				}
 
 				newStates = newStates->next;
@@ -106,30 +108,36 @@ module WIDSManagerP {
 
 		if( alarmTrace != NULL ){ // we have computed the more risky attack until the next relevation
 			// TODO: signal the alarm to the alarming component
-			
+			signal AlarmGeneration.attackDone(alarmTrace->state->attack, alarmTrace->alarm_value);	
 		}
 	
 	}
 
-	task void resetTraces(){
-		while( call Traces[m_id].size() > 0 ){
-			wids_state_trace_t *tmp = call Traces[m_id].dequeue();
+	inline void resetTraces(){
+		while( call Traces.size() > 0 ){
+			wids_state_trace_t *tmp = call Traces.dequeue();
 			call HashMap.remove(tmp->state->id);
+			free(tmp);
 		}
 	}
 
-	async event void Detection.notify[uint8_t id]( wids_observable_t observable ){
-		m_id = id;
-		m_observable = observable;
-		if( observable == NONE ) {
+	task void parseObservable(){
+		wids_observable_t observable = call Observables.dequeue();
+		if( observable == OBS_NONE ) {
 			reset += 1;
 			if ( reset >= RESET_COUNT ){
-				post resetTraces();
+				resetTraces();
 			}
 		} else {
 			reset = 0;
-			post updateTraces();
+			updateTraces(observable);
 		}
+	}
+
+	event void Notify.notify( wids_observable_t observable ){
+		call Observables.enqueue(observable);
+		post parseObservable();
+		
 	}
 
 }

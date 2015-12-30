@@ -38,26 +38,29 @@ configuration TestTraceAppC
 }
 implementation
 {
-	components MainC, TestConfC, LedsC, new BusyWaitCounterC(TMilli, uint16_t) as ConfWait, 
+	components MainC, TestTraceC, LedsC, new BusyWaitCounterC(TMilli, uint16_t) as ConfWait, 
 		new BusyWaitCounterC(TMilli, uint16_t) as AppWait, CounterMilli16C, new TimerMilliC();
 	
 	components SerialPrintfC;
 
-	components WIDSThreatModelC as Model;
+	components WIDSC;
 
-	TestConfC.Boot -> Model.ModelReady;
-	TestConfC.ThreatModel -> Model;
-	TestConfC.ModelConfig -> Model;
-	TestConfC.Timer -> TimerMilliC;
+	TestTraceC.Boot -> WIDSC.Ready;
+	TestTraceC.ThreatModel -> WIDSC;
+	TestTraceC.ModelConfig -> WIDSC;
+	TestTraceC.Timer -> TimerMilliC;
 
-	Model.Boot -> MainC.Boot;
-	Model.Leds -> LedsC;
-	Model.BusyWait -> ConfWait;
+
+	WIDSC.Observable -> TestTraceC.Observable;
+	WIDSC.Boot -> MainC.Boot;
+	WIDSC.Leds -> LedsC;
+	WIDSC.BusyWait -> ConfWait;
 
 	ConfWait.Counter -> CounterMilli16C;
 	AppWait.Counter -> CounterMilli16C;
 
- 	TestConfC.Leds -> LedsC;
- 	TestConfC.BusyWait -> AppWait;
+ 	TestTraceC.Leds -> LedsC;
+ 	TestTraceC.BusyWait -> AppWait;
+ 	TestTraceC.AlarmGeneration -> WIDSC;
 
 }

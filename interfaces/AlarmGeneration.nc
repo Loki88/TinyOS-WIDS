@@ -28,62 +28,8 @@
  *
  */
 
+interface AlarmGeneration {
 
-#include "ThreatModel.h"
-#include "Wids.h"
-#include "printf.h"
-
-module TestTraceC @safe() {
-
-	uses interface Boot;
-
-	uses interface AlarmGeneration;
-	uses interface ThreatModel;
-	uses interface ModelConfig;
-	provides interface Notify<wids_observable_t> as Observable;
-
-	uses interface Leds;
-	uses interface Timer<TMilli>;
-	uses interface BusyWait<TMilli, uint16_t>;
-
-} implementation {
-
-	uint8_t observables[] = { 
-		OBS_1, OBS_1, OBS_16, OBS_16, // constant jamming should be signalled
-		OBS_NONE, OBS_NONE, OBS_NONE, OBS_NONE, OBS_NONE, OBS_NONE, OBS_NONE, // verify the reset of traces
-		OBS_2, OBS_5, OBS_2, OBS_2, OBS_2,
-		OBS_5, OBS_5, OBS_5, OBS_5, OBS_10,
-		OBS_10, OBS_10, OBS_10, OBS_10, OBS_10,
-		OBS_10, OBS_10, OBS_10, OBS_10,			// all traces should be deleted leaving only the one relative to OBS_10
-	};
-
-	uint8_t index = 0;
-
-	task void produceObservable();
-
-	event void Boot.booted(){
-		index = 0;
-		call Timer.startPeriodic( 1000 );
-	}
-
-	async event void ModelConfig.syncDone(){}
-
-
-	event void Timer.fired(){
-		post produceObservable();
-	}
-
-	task void produceObservable(){
-		signal Observable.notify(observables[index]);
-		index += 1;
-	}
-
-	event void AlarmGeneration.attackDone(wids_attack_t attack, uint8_t score){
-		printf("Attack detected %s with score %d\n", printfAttack(attack), score);
-	}
-
-	command error_t Observable.disable(){}
-
-	command error_t Observable.enable(){}
+	event void attackDone(wids_attack_t attack, uint8_t score);
 
 }
