@@ -53,15 +53,27 @@ module WIDSManagerP {
 
 	void updateTraces(wids_observable_t obs) {
 
-		uint8_t size = call Traces.size(), i = 0;
-		// wids_observable_t obs = Observables.dequeue();
-		alarmTrace = NULL;
+		uint8_t size, i = 0;
 
+		/* We insert every times a new trace with reset state in Traces to evaluate new traces */
+		alarmTrace = malloc(sizeof(wids_state_trace_t));
+		alarmTrace->state = call ThreatModel.getResetState();
+		alarmTrace->observation_count = 0;
+		alarmTrace->alarm_value = 0;
+		call Traces.enqueue(alarmTrace);
+
+
+		size = call Traces.size();
+
+		// set to NULL to handle the max alarm value trace
+		alarmTrace = NULL;
 		while( i < size ) {
 			linked_list_t *newStates;
 
 			wids_state_trace_t *tmp = call Traces.dequeue();
 			call HashMap.remove(tmp->state->id); 
+
+			printf("Updating traces\n");
 
 			// manage return and update, remove or insert traces into the priority queue
 			newStates = call ThreatModel.getObservedStates( tmp->state, obs );
@@ -69,9 +81,8 @@ module WIDSManagerP {
 			while( newStates != NULL ) {
 				// the init trace has been removed, but we can have arrived to another state
 				wids_state_trace_t *traceTmp = call HashMap.get(((wids_state_t*)newStates->element)->id);
-
+				printf("Transition from %d to %d\n", tmp->state->id, ((wids_state_t*)newStates->element)->id);
 				if( traceTmp != NULL ) { // the state is yet in a Queue
-
 					traceTmp->observation_count = 0; // reset the observation count and then update the alarm score
 					if (traceTmp->alarm_value > tmp->alarm_value){
 						traceTmp->alarm_value += ((wids_state_t*)newStates->element)->alarm_level;
@@ -135,6 +146,7 @@ module WIDSManagerP {
 	}
 
 	event void Notify.notify( wids_observable_t observable ){
+		printf("Received observable %s\n", printObservable(observable));
 		call Observables.enqueue(observable);
 		post parseObservable();
 		

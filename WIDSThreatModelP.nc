@@ -169,23 +169,23 @@ module WIDSThreatModelP {
 
 		wids_state_transition_t *neighbour = state->transitions; // visit all the states near the current one
 		linked_list_t *observedStates = NULL, *tmp = NULL;
+		wids_obs_list_t *observables = NULL;
 
 		while( neighbour != NULL ) {
-			wids_obs_list_t *observables = neighbour->state->observables;
+			observables = neighbour->state->observables;
 
 			while( observables != NULL ) {
 				if( observables->obs == observable ) {
-					if( observedStates == NULL ) { // initialize first element
-						observedStates = malloc( sizeof(wids_state_t) + sizeof(linked_list_t*) );
-						tmp = observedStates;
-					} else {
-						tmp->next = malloc( sizeof(wids_state_t) + sizeof(linked_list_t*) );
-						tmp = tmp->next;
-					}
+					// printf("FOUND state id %d for observable %s\n", neighbour->state->id, printObservable(observables->obs));
+
+					tmp = malloc(sizeof(linked_list_t));
+					tmp -> next = observedStates;
+					observedStates = tmp;
 					
-					((wids_state_trace_t*)tmp->element)->state = neighbour->state;
+					tmp->element = neighbour->state;
 					break; // don't continue this while since the state has yet been added
 				}
+
 				observables = observables->next;
 			}
 			neighbour = neighbour -> next;
