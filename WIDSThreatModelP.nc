@@ -165,33 +165,38 @@ module WIDSThreatModelP {
 		return call HashMap.get( id );
 	}
 
-	async command linked_list_t* ThreatModel.getObservedStates( wids_state_t *state, wids_observable_t observable ) {
+	async command linked_list_t* ThreatModel.getNextStates( wids_state_t *state ) {
 
-		wids_state_transition_t *neighbour = state->transitions; // visit all the states near the current one
-		linked_list_t *observedStates = NULL, *tmp = NULL;
-		wids_obs_list_t *observables = NULL;
+		// wids_state_transition_t *neighbour = state->transitions; // visit all the states near the current one
+		// linked_list_t *observedStates = NULL, *tmp = NULL;
+		// wids_obs_list_t *observables = NULL;
 
-		while( neighbour != NULL ) {
-			observables = neighbour->state->observables;
+		// while( neighbour != NULL ) {
+		// 	observables = neighbour->state->observables;
 
-			while( observables != NULL ) {
-				if( observables->obs == observable ) {
-					// printf("FOUND state id %d for observable %s\n", neighbour->state->id, printObservable(observables->obs));
+		// 	while( observables != NULL ) {
+		// 		if( observables->obs == observable ) {
+		// 			// printf("FOUND state id %d for observable %s\n", neighbour->state->id, printObservable(observables->obs));
 
-					tmp = malloc(sizeof(linked_list_t));
-					tmp -> next = observedStates;
-					observedStates = tmp;
+		// 			tmp = malloc(sizeof(linked_list_t));
+		// 			tmp -> next = observedStates;
+		// 			observedStates = tmp;
 					
-					tmp->element = neighbour->state;
-					break; // don't continue this while since the state has yet been added
-				}
+		// 			tmp->element = neighbour->state;
+		// 			break; // don't continue this while since the state has yet been added
+		// 		}
 
-				observables = observables->next;
-			}
-			neighbour = neighbour -> next;
-		}
+		// 		observables = observables->next;
+		// 	}
+		// 	neighbour = neighbour -> next;
+		// }
 
-		return observedStates;
+		// return observedStates;
+		return (linked_list_t*)state->transitions;
+	}
+
+	async command wids_obs_list_t* ThreatModel.getObservables( wids_state_t *state ){
+		return state->observables;
 	}
 
 	command error_t ModelConfig.sync(){

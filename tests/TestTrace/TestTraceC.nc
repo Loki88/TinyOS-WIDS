@@ -63,7 +63,7 @@ module TestTraceC @safe() {
 
 	event void Boot.booted(){
 		index = 0;
-		call Timer.startPeriodic( 1000 );
+		call Timer.startPeriodic( 3000 );
 	}
 
 	async event void ModelConfig.syncDone(){}
@@ -74,11 +74,14 @@ module TestTraceC @safe() {
 	}
 
 	task void produceObservable(){
-		signal Observable.notify(observables[index]);
+		wids_observable_t obs = observables[index];
+		signal Observable.notify( obs );
 		index += 1;
+		if(index>=30)
+			index = 0;
 	}
 
-	event void AlarmGeneration.attackDone(wids_attack_t attack, uint8_t score){
+	event void AlarmGeneration.attackFound(wids_attack_t attack, uint8_t score){
 		printf("Attack detected %s with score %d\n", printfAttack(attack), score);
 	}
 

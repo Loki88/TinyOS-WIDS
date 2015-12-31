@@ -44,6 +44,8 @@ interface ThreatModel {
      * 
      * 
      */
-    async command linked_list_t* getObservedStates( wids_state_t *state, wids_observable_t observable );
+    async command linked_list_t* getNextStates( wids_state_t *state );
+
+    async command wids_obs_list_t* getObservables( wids_state_t *state );
 
 }

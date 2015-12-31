@@ -30,6 +30,6 @@
 
 interface AlarmGeneration {
 
-	event void attackDone(wids_attack_t attack, uint8_t score);
+	event void attackFound(wids_attack_t attack, uint8_t score);
 
 }

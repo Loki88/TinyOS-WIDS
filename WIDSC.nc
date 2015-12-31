@@ -65,8 +65,6 @@ configuration WIDSC {
 	ModelConfig = Model.ModelConfig;
 	Ready = Model;
 
-
-	Observable = WIDSManagerP.Notify;
 	Boot = Model.Boot;	
 	Leds = Model.Leds;
 	BusyWait = Model.BusyWait;

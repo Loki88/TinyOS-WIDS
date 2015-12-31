@@ -33,10 +33,13 @@
 #ifndef __WIDS_H
 #define __WIDS_H
 
+#define RESET_COUNT 5
+
+
 enum wids_alarm_level {
     
-    HIGH_LEV_THREAT =  200,
-    LOW_LEV_THREAT =   50,
+    HIGH_LEV_THREAT =  20,
+    LOW_LEV_THREAT =   5,
 
 };
 
