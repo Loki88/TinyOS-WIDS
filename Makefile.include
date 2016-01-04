@@ -1,7 +1,9 @@
 CFLAGS += -I$(TOSDIR)/lib/wids \
 		-I$(TOSDIR)/lib/wids/dummy \
 		-I$(TOSDIR)/lib/wids/utility \
-		-I$(TOSDIR)/lib/wids/interfaces
+		-I$(TOSDIR)/lib/wids/interfaces \
+		-I$(TOSDIR)/lib/wids/dummies \
+		-I$(TOSDIR)/lib/wids/threat_model
 
 CFLAGS += -I$(TOSDIR)/lib/printf
 

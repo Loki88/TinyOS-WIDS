@@ -52,8 +52,6 @@ module WIDSManagerP {
 
 	norace uint8_t reset = 0;
 
-	wids_state_trace_t *alarmTrace;
-
 	inline void updateScore(wids_state_trace_t *t, uint8_t al){
 		uint16_t tmp = (uint16_t)t->alarm_value + (uint16_t)al;
 		if(tmp > 255)
@@ -65,11 +63,6 @@ module WIDSManagerP {
 		trace->state = NULL;
 		trace->observation_count = 0;
 		trace->alarm_value = 0;
-	}
-
-	inline void updateMax(wids_state_trace_t *t){
-		if( t != NULL && (alarmTrace == NULL || t->alarm_value > alarmTrace->alarm_value) ) 
-			alarmTrace = t;
 	}
 
 	bool containsObservable(wids_state_t *s, wids_observable_t o){
@@ -92,15 +85,17 @@ module WIDSManagerP {
 
 		if(containsObservable(tr->state, obs) == TRUE) { // state tr->state is still possible
 			tr->observation_count = 0;
+			signal AlarmGeneration.attackFound(tr->state->attack, tr->alarm_value);
 		} else {
 			tr->observation_count += 1; // reset count
 			if(tr->observation_count > RESET_COUNT){
 				r = FALSE;
+			} else {
+				signal AlarmGeneration.attackFound(tr->state->attack, tr->alarm_value);
 			}
 		}
 
-		if(r == TRUE)
-			updateMax(tr);
+		
 		
 		// The new states are now considered
 
@@ -129,7 +124,7 @@ module WIDSManagerP {
 					call HashMap.insert(trace, trace->state->id);
 				}
 
-				updateMax(trace);
+				signal AlarmGeneration.attackFound(trace->state->attack, trace->alarm_value);
 			}
 
 			traceList = traceList->next;
@@ -166,90 +161,7 @@ module WIDSManagerP {
 			}
 			i += 1;
 		}
-
-		if(alarmTrace != NULL)
-			signal AlarmGeneration.attackFound(alarmTrace->state->attack, alarmTrace->alarm_value);
 	}
-
-	// 	uint8_t size, i = 0;
-	// 	bool isFree = FALSE;
-
-	// 	/* We insert every times a new trace with reset state in Traces to evaluate new traces */
-	// 	alarmTrace = malloc(sizeof(wids_state_trace_t));
-	// 	initTrace(alarmTrace);
-	// 	alarmTrace->state = call ThreatModel.getResetState();
-	// 	call Traces.enqueue(alarmTrace);
-
-	// 	size = call Traces.size();
-
-	// 	// set to NULL to handle the max alarm value trace
-	// 	alarmTrace = NULL;
-	// 	while( i < size ) {
-	// 		linked_list_t *observedStates;
-
-	// 		wids_state_trace_t *tr = call Traces.dequeue();
-	// 		// we remove the trace only if it's old enough
-			
-	// 		isFree = FALSE;
-
-	// 		if(tr->state->id != 0){
-	// 			tr->observation_count += 1;
-	// 			if(tr->observation_count >= RESET_COUNT){
-	// 				isFree = TRUE;
-	// 				call HashMap.remove(tr->state->id); 
-	// 			}
-	// 			else {
-	// 				call Traces.enqueue(tr);
-	// 				updateMax(tr);
-	// 			}
-	// 		}
-
-	// 		// manage return and update, remove or insert traces into the priority queue
-	// 		printf("Trace with state %d update for %s\n", tr->state->id, printObservable(obs));
-	// 		observedStates = call ThreatModel.getObservedStates( tr->state, obs );
-
-	// 		while( observedStates != NULL ) {
-	// 			// there could be another trace with the same state, it's verified here
-	// 			wids_state_trace_t *newTrace = call HashMap.get(((wids_state_t*)observedStates->element)->id);
-
-	// 			// uint8_t newScore = tr->alarm_value+((wids_state_t*)newStates->element)->alarm_level;
-
-	// 			printf("Transition from %d to %d\n", tr->state->id, ((wids_state_t*)observedStates->element)->id);
-
-	// 			// UPDATE AN EXISTING TRACE EVEN IF ITS STATE IS THE SAME OF THE ONE WE STARTED FROM
-	// 			if( newTrace != NULL ) { // the state is yet in a Trace
-	// 				newTrace->observation_count = 0; // reset the observation count and then update the alarm score
-	// 				if (newTrace->alarm_value > tr->alarm_value){
-	// 					newTrace->alarm_value += ((wids_state_t*)observedStates->element)->alarm_level;
-	// 				} else {
-	// 					newTrace->alarm_value = tr->alarm_value + ((wids_state_t*)observedStates->element)->alarm_level;
-	// 				}
-	// 			}
-	// 			else {	// there is a new state so it is needed to create a new trace
-	// 				printf("New Trace \n");
-	// 				newTrace = malloc(sizeof(wids_state_trace_t));
-	// 				newTrace->state = ((wids_state_t*)observedStates->element);
-	// 				newTrace->observation_count = 0;
-	// 				newTrace->alarm_value = tr->alarm_value + ((wids_state_t*)observedStates->element)->alarm_level;
-	// 				call Traces.enqueue(newTrace);
-	// 				call HashMap.insert(newTrace, newTrace->state->id);
-	// 			}
-
-	// 			updateMax(newTrace);
-	// 			observedStates = observedStates->next;
-	// 		}
-
-	// 		i += 1;
-	// 		if(isFree)
-	// 			free(tr);
-	// 	}
-
-	// 	if( alarmTrace != NULL ){ // we have computed the more risky attack until the next relevation
-	// 		// TODO: signal the alarm to the alarming component
-	// 		signal AlarmGeneration.attackDone(alarmTrace->state->attack, alarmTrace->alarm_value);	
-	// 	}
-	
-	// }
 
 	inline void resetTraces(){
 		while( call Traces.size() > 0 ){
@@ -272,9 +184,16 @@ module WIDSManagerP {
 		}
 	}
 
+	task void update(){
+		while( call Observables.size() > 0 ){
+			updateTraces(call Observables.dequeue());
+		}
+	}
+
 	event void Notify.notify( wids_observable_t observable ){
 		printf("Notify.notify(%s)\n", printObservable(observable));
-		if( observable == OBS_NONE ) {
+		if( call Observables.size() == 0 ) {
+		// if( observable == OBS_NONE ) {
 			reset += 1;
 			if ( reset >= RESET_COUNT ){
 				printf("RESET\n");
@@ -283,7 +202,7 @@ module WIDSManagerP {
 			}
 		} else {
 			reset = 0;
-			updateTraces(observable);
+			post update();
 		}
 		
 	}

@@ -305,6 +305,18 @@ typedef struct wids_rxFrame_detail {
 } wids_rxFrame_detail_t;
 
 
+typedef enum wids_status {
 
+	TX_SUCCESSFUL = 0x01,
+	TX_CCA_FAILED = 0x02,
+	TX_ACK_FAILED = 0x03,
+
+	RX_SUCCESSFUL = 0x10,
+	RX_CRC_FAILED = 0x11,
+	RX_GTS_FAILED = 0x12,
+	
+	CTRL_TIMEOUT  = 0x20,
+
+} wids_status_t;
 
 #endif // __WIDS_H

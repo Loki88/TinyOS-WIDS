@@ -1,34 +1,26 @@
 
-
-#include "TKN154.h"
+#include "Wids.h"
 
 interface ThreatDetection {
 
 	/* 
-	 * Signals the reception of a frame at MAC level.
+	 * Signals the transmission of a frame and the status of the transmission.
 	 */
-	async event frameReceived(message_t *msg);
+	async event error_t frameTransmit(message_t *msg, wids_status_t status);
 
 	/* 
-	 * Signals the reception of a corrupted frame.
-	 * "msg" is the corrupted message.
+	 * Signals the reception of a frame with athe associated status.
 	 */
-	async event frameRxError(message_t *msg);
+	async event error_t frameReceived(message_t *msg, wids_status_t status);
 
 	/* 
 	 * Signals an error in the control procedures at level 2.
 	 * "error_code" is a code identifying the error occurred.
 	 */
-	async event ctrlError(uint8_t error_code);
+	async event error_t controlError(wids_status_t status);
 
 	/* 
-	 * Signals the reception of a level 3 PDU
+	 * Signals the reception of a level 3 PDU with the associated status
 	 */
-	async event packetReceived(message_t *msg);
-
-	/*
-	 * Signals an error in the authentication procedure.
-	 * "msg" is 
-	 */
-	async event authError(message_t *msg);
+	async event error_t packetReceived(message_t *msg, wids_status_t status);
 }

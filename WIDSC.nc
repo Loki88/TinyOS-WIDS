@@ -45,6 +45,12 @@ configuration WIDSC {
 		interface Leds;
 		interface BusyWait<TMilli, uint16_t>;
 		interface Notify<wids_observable_t> as Observable;
+
+		interface ThreatDetection;
+		interface SystemInfo;
+		interface NetworkUtility;
+
+		interface Notify<wids_observable_t> as RemoteDetection;
 	}
 
 
@@ -54,23 +60,50 @@ configuration WIDSC {
 	#define TRACE_NUMBERS 10
 	#endif
 
+	#ifndef OBS_NUMBERS
+	#define OBS_NUMBERS 20
+	#endif
+
 	components new SimpleHashMapC(wids_state_trace_t, TRACE_NUMBERS) as HMap, WIDSManagerP;
 	components new QueueC(wids_state_trace_t*, TRACE_NUMBERS);
-	components new QueueC(wids_observable_t, TRACE_NUMBERS) as ObservableQueue;
+	components new QueueC(wids_observable_t, OBS_NUMBERS) as ObservableQueue;
 	
-	components WIDSThreatModelC as Model;
+	components WIDSThreatModelC as Model, AnomalyDetectionP as Detection;
+
+	// Dummies
+	components RemoteDetectionDummyP as RemoteDummy;
+
+	#ifdef WIDS_DEBUG
+	components SysMonDummyP, DebugP;
+	Detection.SystemInfo -> SysMonDummyP;
+	Detection.NetworkUtility -> SysMonDummyP;
+	DebugP.AlarmGeneration -> Model;
+	#endif
 
 	AlarmGeneration = WIDSManagerP;
 	ThreatModel = Model.ThreatModel;
 	ModelConfig = Model.ModelConfig;
 	Ready = Model;
+	ThreatDetection = Detection;
+	SystemInfo = Detection;
+	NetworkUtility = Detection;
+	RemoteDetection = Detection.RemoteDetection;
 
 	Boot = Model.Boot;	
 	Leds = Model.Leds;
 	BusyWait = Model.BusyWait;
 	Observable = WIDSManagerP.Notify;
 
+	// This signals nothing
+	Detection.RemoteDetection -> RemoteDummy;
 
+
+	
+
+
+	Detection.Observables -> ObservableQueue;
+
+	WIDSManagerP.Notify -> Detection.Notify;
 	WIDSManagerP.ThreatModel -> Model;
 	WIDSManagerP.Traces -> QueueC;
 	WIDSManagerP.HashMap -> HMap;
