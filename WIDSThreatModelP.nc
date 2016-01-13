@@ -44,37 +44,59 @@ module WIDSThreatModelP {
 
 } implementation {
 
+	enum{
+		RESET_ID = 0,
+		RESET_SCORE = 0,
+	};
+
 	norace uint8_t m_id;
+	wids_state_t *resetState = NULL;
+	uint8_t maxAging = 5;
 
 	command error_t Init.init(){
+		printf("WIDSThreatModelP -> INIT\n");
 		call HashMapInit.init();
-		if(call ModelConfig.createState(0, NO_ATTACK, 0) == SUCCESS){
-			wids_state_t *reset = call ThreatModel.getResetState();
-			reset -> next = NULL;
-			reset->observables = NULL;
-			reset->transitions = NULL;
+
+		if(call ModelConfig.createState(RESET_ID, NO_ATTACK, RESET_SCORE) == SUCCESS){
+			call ThreatModel.getState(RESET_ID, &resetState);
+
+			resetState->next = NULL;
+			resetState->observables = NULL;
+			resetState->transitions = NULL;
+
 			return SUCCESS;
 		} else {
 			return FAIL;
 		}
-		
+	}
+
+	void initState(wids_state_t *state){
+		state->id = 0;
+		state->attack = NO_ATTACK;
+		state->alarm_level = 0;
+		state->observables = NULL;
+		state->transitions = NULL;
+		state->next = NULL;
+		state->loop = FALSE;
+		state->reset = NULL;
+		state->resetCount = 1;
 	}
 
 	command error_t ModelConfig.createState(uint8_t id, wids_attack_t att, uint8_t alarm){
 
 		wids_state_t *state = malloc(sizeof(wids_state_t));
-		wids_state_t *tmp = call ThreatModel.getResetState();
+		wids_state_t *tmp = resetState->next;
+		initState(state);
+
+		// printf("ModelConfig.createState(%d, %s, %d)\n", id, printfAttack(att), alarm);
 
 		state->id = id;
 		state->attack = att;
 		state->alarm_level = alarm;
-		state->observables = NULL;
-		state->transitions = NULL;
-		state->next = tmp->next;
+		resetState->next = state;
+		state->next = tmp;
 
-		tmp->next = state;
-
-		if(call HashMap.insert(state, id) != SUCCESS){
+		if(call HashMap.insert( id, state ) != SUCCESS){
 			free( state );
 			return FAIL;
 		}
@@ -82,11 +104,12 @@ module WIDSThreatModelP {
 	}
 
 	command error_t ModelConfig.addTransition( uint8_t idFrom, uint8_t idTo ){
-		wids_state_t *from = call HashMap.get(idFrom);
-		wids_state_t *to = call HashMap.get(idTo);
-
-		if( from != NULL && to != NULL ){
+		wids_state_t *from = NULL, *to = NULL;
+		// printf("ModelConfig.addTransition(%d, %d)\n", idFrom, idTo);
+		if( call HashMap.get(idFrom, &from) == SUCCESS &&
+					call HashMap.get(idTo, &to) == SUCCESS){
 			wids_state_transition_t *transition = malloc(sizeof(wids_state_transition_t));
+			// printf("Transition from state->id %d to state->id %d\n", from->id, to->id);
 			transition->state = to;
 			transition->next = from->transitions;
 			from->transitions = transition;	
@@ -97,13 +120,50 @@ module WIDSThreatModelP {
 	}
 
 	command error_t ModelConfig.addObservable( uint8_t stateId, wids_observable_t obs ){
-		wids_state_t *state = call HashMap.get( stateId );
-
-		if( state != NULL ) {
+		wids_state_t *state = NULL;
+		// printf("ModelConfig.addObservable(%d, %s)\n", stateId, printObservable(obs));
+		if( call HashMap.get( stateId, &state ) == SUCCESS ) {
 			wids_obs_list_t *obsEntry = malloc(sizeof(wids_obs_list_t));
 			obsEntry->obs = obs;
 			obsEntry->next = state->observables;
 			state->observables = obsEntry;
+			// printf("Observable %s in state %d\n", printObservable(obsEntry->obs), state->id);
+			return SUCCESS;
+		} else {
+			return FAIL;
+		}
+	}
+
+	command error_t ModelConfig.addResetObservable( uint8_t stateId, wids_observable_t obs ){
+		wids_state_t *state = NULL;
+
+		if( call HashMap.get( stateId, &state ) == SUCCESS ) {
+			wids_obs_list_t *obsEntry = malloc(sizeof(wids_obs_list_t));
+			obsEntry->obs = obs;
+			obsEntry->next = state->reset;
+			state->reset = obsEntry;
+			return SUCCESS;
+		} else {
+			return FAIL;
+		}
+	}
+
+	command error_t ModelConfig.allowLoop( uint8_t stateId, bool loop ){
+		wids_state_t *state = NULL;
+
+		if( call HashMap.get( stateId, &state ) == SUCCESS ) {
+			state->loop = loop;
+			return SUCCESS;
+		} else {
+			return FAIL;
+		}
+	}
+
+	async command error_t ModelConfig.setResetCount( uint8_t stateId, uint8_t resetCount ){
+		wids_state_t *state = NULL;
+
+		if( call HashMap.get( stateId, &state ) == SUCCESS ) {
+			state->resetCount = resetCount;
 			return SUCCESS;
 		} else {
 			return FAIL;
@@ -137,8 +197,9 @@ module WIDSThreatModelP {
 	}
 
 	command error_t ModelConfig.removeState( uint8_t stateId ) {
-		wids_state_t *reset = call ThreatModel.getResetState();
+		wids_state_t *reset = resetState;
 		wids_state_t *nextState = reset->next;
+
 		m_id = stateId;
 
 		while( nextState != NULL ){
@@ -151,52 +212,45 @@ module WIDSThreatModelP {
 			visitSubtree( call Queue.dequeue() );
 		}
 
-		reset = call HashMap.get(stateId);
-		call HashMap.remove(stateId);
-		free(reset);
-		return SUCCESS;
+		if(call HashMap.get(stateId, &reset) == SUCCESS){ // here reset contains the state to remove
+			call HashMap.remove(stateId);
+			free(reset);
+			return SUCCESS;
+		} else {
+			return FAIL;
+		}
 	}
 
-	async command wids_state_t* ThreatModel.getResetState(){
-		return call HashMap.get(0);
+	async command void ThreatModel.getResetState(wids_state_t **s){
+		*s = resetState;
 	}
 
-	async command wids_state_t* ThreatModel.getState( uint8_t id ){
-		return call HashMap.get( id );
+	async command void ThreatModel.getState( uint8_t id, wids_state_t **s ){
+		call HashMap.get( id, s );
 	}
 
-	async command linked_list_t* ThreatModel.getNextStates( wids_state_t *state ) {
+	async command wids_state_transition_t* ThreatModel.getNextStates( wids_state_t *state ) {
+		return state->transitions;
+	}
 
-		// wids_state_transition_t *neighbour = state->transitions; // visit all the states near the current one
-		// linked_list_t *observedStates = NULL, *tmp = NULL;
-		// wids_obs_list_t *observables = NULL;
+	async command bool ThreatModel.isLoopAllowed( wids_state_t *state ) {
+		return state->loop;
+	}
 
-		// while( neighbour != NULL ) {
-		// 	observables = neighbour->state->observables;
-
-		// 	while( observables != NULL ) {
-		// 		if( observables->obs == observable ) {
-		// 			// printf("FOUND state id %d for observable %s\n", neighbour->state->id, printObservable(observables->obs));
-
-		// 			tmp = malloc(sizeof(linked_list_t));
-		// 			tmp -> next = observedStates;
-		// 			observedStates = tmp;
-					
-		// 			tmp->element = neighbour->state;
-		// 			break; // don't continue this while since the state has yet been added
-		// 		}
-
-		// 		observables = observables->next;
-		// 	}
-		// 	neighbour = neighbour -> next;
-		// }
-
-		// return observedStates;
-		return (linked_list_t*)state->transitions;
+	async command bool ThreatModel.getResetCount( wids_state_t *state ) {
+		return state->resetCount;
 	}
 
 	async command wids_obs_list_t* ThreatModel.getObservables( wids_state_t *state ){
 		return state->observables;
+	}
+
+	async command wids_obs_list_t* ThreatModel.getResetObservables( wids_state_t *state ){
+		return state->reset;
+	}
+
+	command uint8_t ThreatModel.getMaxAging(){
+		return maxAging;
 	}
 
 	command error_t ModelConfig.sync(){

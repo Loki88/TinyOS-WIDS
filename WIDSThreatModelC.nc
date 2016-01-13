@@ -39,8 +39,11 @@ configuration WIDSThreatModelC {
 	provides interface ThreatModel;
 
 	uses interface Boot;
+
+#ifdef WIDS_WRITE_CONFIG
 	uses interface Leds;
 	uses interface BusyWait<TMilli, uint16_t>;
+#endif
 
 } implementation {
 
@@ -48,30 +51,38 @@ configuration WIDSThreatModelC {
 #define HASHMAP_STATE_SIZE 10
 #endif
 
-	components WIDSThreatModelP as Model, WIDSConfigP as Config;
-	components new SimpleHashMapC(wids_state_t, HASHMAP_STATE_SIZE) as States;
-
-	Boot = Config.Boot;
+#ifdef WIDS_WRITE_CONFIG
+	components WIDSConfigP as Config;
 	Leds = Config.Leds;
 	BusyWait = Config.BusyWait;
 
-	ModelReady = Config.ModelReady;
+	// Volumes configuration
+	components new ConfigStorageC(VOLUME_CONFIG) as ConfigVolume;
+
+	Config.Mount -> ConfigVolume;
+	Config.ConfigStorage -> ConfigVolume;
 	ModelConfig = Config.ModelConfig;
+	Config.ThreatModel -> Model;
+#else
+	components WIDSInitP as Config;
+	ModelConfig = Model.ModelConfig;
+#endif
+
+	components WIDSThreatModelP as Model;
+	components new SimpleHashMapC(wids_state_t, HASHMAP_STATE_SIZE) as States;
+
+	Boot = Config.Boot;
+	ModelReady = Config.ModelReady;
+	
 	ThreatModel = Model.ThreatModel;
 
 
 	Model.HashMap -> States;
 	Model.HashMapInit -> States;
 	Config.TMConfig -> Model;
-	Config.ThreatModel -> Model;
 	Config.Init -> Model;
 
-	// Volumes configuration
-	components new ConfigStorageC(VOLUME_CONFIG) as ConfigVolume;
-
-
-	Config.Mount -> ConfigVolume;
-	Config.ConfigStorage -> ConfigVolume;
+	
 
 	
 }

@@ -30,6 +30,7 @@
 
 
 #include "ThreatModel.h"
+#include "TKN154.h"
 #include "Wids.h"
 #include "printf.h"
 
@@ -40,16 +41,14 @@ module TestTraceC @safe() {
 	uses interface AlarmGeneration;
 	uses interface ThreatModel;
 	uses interface ModelConfig;
-	provides interface Notify<wids_observable_t> as Observable;
+	provides interface ObservableNotify as Observable;
 
-	uses interface Leds;
 	uses interface Timer<TMilli>;
-	uses interface BusyWait<TMilli, uint16_t>;
 
 } implementation {
 
 	uint8_t observables[] = { 
-		OBS_1, OBS_1, OBS_16, OBS_16, // constant jamming should be signalled
+		OBS_1, OBS_1, OBS_16, OBS_16, // constant jamming should be signaled
 		OBS_NONE, OBS_NONE, OBS_NONE, OBS_NONE, OBS_NONE, OBS_NONE, OBS_NONE, // verify the reset of traces
 		OBS_2, OBS_5, OBS_2, OBS_2, OBS_2,
 		OBS_5, OBS_5, OBS_5, OBS_5, OBS_10,
@@ -81,12 +80,12 @@ module TestTraceC @safe() {
 			index = 0;
 	}
 
-	event void AlarmGeneration.attackFound(wids_attack_t attack, uint8_t score){
-		printf("Attack detected %s with score %d\n", printfAttack(attack), score);
+	event void AlarmGeneration.traceLevelUpdate(wids_attack_t attack, uint8_t score){
+		printf("Trace level update for attack %s, score %d\n", printfAttack(attack), score);
 	}
 
-	command error_t Observable.disable(){}
-
-	command error_t Observable.enable(){}
+	event void AlarmGeneration.newTraceFound(wids_attack_t attack, uint8_t score){
+		printf("New trace created for attack %s, score %d\n", printfAttack(attack), score);
+	}
 
 }

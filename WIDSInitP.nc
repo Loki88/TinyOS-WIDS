@@ -28,18 +28,23 @@
  *
  */
  
-#include "WIDS.h"
+#include "Wids.h"
 #include "printf.h"
 
-module WIDSInitP{
+module WIDSInitP {
 
-	uses interface ModelConfig;
+	provides interface Boot as ModelReady;
+
+	uses interface Boot;
+	uses interface Init;
+	uses interface ModelConfig as TMConfig;
 }
 implementation {
 
-	uint8_t nStates = 24;
-	uint8_t nTransitions = 24;
-	uint8_t nObservables = 60;
+	uint32_t m_addr;
+	uint8_t buffer[4];
+	norace bool m_sync = FALSE;
+	norace bool mounted = FALSE;
 
 	uint8_t initStates[24][3] = {
 		{ 0x01, CONSTANT_JAMMING, LOW_LEV_THREAT },
@@ -113,99 +118,165 @@ implementation {
 		{ 0x13, OBS_13  }, { 0x13, OBS_28  }, { 0x14, OBS_13  }, { 0x14, OBS_28 },
 
 		// SYBIL
-		{ 0x14, OBS_14  }, { 0x13, OBS_29  }, { 0x14, OBS_14  }, { 0x14, OBS_29 },
+		{ 0x15, OBS_14  }, { 0x15, OBS_29  }, { 0x16, OBS_14  }, { 0x16, OBS_29 },
 
 		// WORMHOLE
-		{ 0x15, OBS_15  }, { 0x15, OBS_30  }, { 0x16, OBS_15 }, { 0x16, OBS_30  },
+		{ 0x17, OBS_15  }, { 0x17, OBS_30  }, { 0x18, OBS_15 }, { 0x18, OBS_30  },
+	};
+
+	uint8_t initLoops[12][2] = {
+		{ 0x02, TRUE },
+		{ 0x04, TRUE },
+		{ 0x06, TRUE },
+		{ 0x08, TRUE },
+		{ 0x0A, TRUE },
+		{ 0x0C, TRUE },
+		{ 0x0E, TRUE },
+		{ 0x10, TRUE },
+		{ 0x12, TRUE },
+		{ 0x14, TRUE },
+		{ 0x16, TRUE },
+		{ 0x18, TRUE },
+	};
+
+	uint8_t initResetObservables[24][2] = {
+		{ 0x01, OBS_NONE},
+		{ 0x02, OBS_NONE},
+		{ 0x03, OBS_NONE},
+		{ 0x04, OBS_NONE},
+		{ 0x05, OBS_NONE},
+		{ 0x06, OBS_NONE},
+		{ 0x07, OBS_NONE},
+		{ 0x08, OBS_NONE},
+		{ 0x09, OBS_NONE},
+		{ 0x0A, OBS_NONE},
+		{ 0x0B, OBS_NONE},
+		{ 0x0C, OBS_NONE},
+		{ 0x0D, OBS_NONE},
+		{ 0x0E, OBS_NONE},
+		{ 0x0F, OBS_NONE},
+		{ 0x10, OBS_NONE},
+		{ 0x11, OBS_NONE},
+		{ 0x12, OBS_NONE},
+		{ 0x13, OBS_NONE},
+		{ 0x14, OBS_NONE},
+		{ 0x15, OBS_NONE},
+		{ 0x16, OBS_NONE},
+		{ 0x17, OBS_NONE},
+		{ 0x18, OBS_NONE},
+	};
+
+	uint8_t initResetCount[24][2] = {
+		{ 0x01, 1 },
+		{ 0x02, 2 },
+		{ 0x03, 1 },
+		{ 0x04, 2 },
+		{ 0x05, 1 },
+		{ 0x06, 2 },
+		{ 0x07, 1 },
+		{ 0x08, 2 },
+		{ 0x09, 1 },
+		{ 0x0A, 2 },
+		{ 0x0B, 1 },
+		{ 0x0C, 2 },
+		{ 0x0D, 10 },
+		{ 0x0E, 10 },
+		{ 0x0F, 1 },
+		{ 0x10, 2 },
+		{ 0x11, 1 },
+		{ 0x12, 2 },
+		{ 0x13, 1 },
+		{ 0x14, 2 },
+		{ 0x15, 1 },
+		{ 0x16, 2 },
+		{ 0x17, 1 },
+		{ 0x18, 2 },
 	};
 
 	enum {
-		NONE,
-		INIT_STATE,
-		INIT_TRANS,
-		INIT_OBSER,
-		INIT_DONE
+	    CONFIG_ADDR		= 0,
+	    CONFIG_SIZE		= 7,
+
+	    STATE_ADDR		= 7,
+	    STATE_SIZE 		= 3,
+	    
+	    TRANSITION_ADDR	= 96,
+	    TRANSITION_SIZE	= 2,
+
+	    OBSERVABLE_ADDR = 1057,
+	    OBSERVABLE_SIZE	= 2,
+	    
+	    ALARM_CYCLE		= 8,
+	    SYNC_DELAY		= 600, // TODO: use a timer to delay synchronization of config in flash
 	};
 
-	uint8_t state = NONE;
-	uint8_t counter;
+	uint8_t m_count = 0;
+	// bool m_booted = FALSE;
 
-	task void loadStartingConfig();
+	task void startingConfig(){
+		uint8_t count = 0;
+		uint8_t states = 24;
+		uint8_t transitions = 24;
+		uint8_t observables = 60;
+		uint8_t resets = 24;
+		uint8_t loops = 12;
 
-	void nextTransition();
-	void nextState();
-	void nextObservable();
-
-	event void ModelConfig.loadDone(error_t error) {
-		if (error == FAIL && state == NONE){
-			printf("Init FAIL\r\n");
-			post loadStartingConfig();
+		while ( count < states ) {
+			uint8_t id = initStates[count][0];
+			uint8_t attack = initStates[count][1];
+			uint8_t alarm_level = initStates[count][2];
+			call TMConfig.createState( id, attack, alarm_level );
+			count += 1;
 		}
-	}
 
-	task void loadStartingConfig(){
-		switch(state) {
-			case NONE:
-				state = INIT_STATE;
-				counter = 0;
-				post loadStartingConfig();
-				break;
-			case INIT_STATE:
-				if(counter < nStates){
-					nextState();
-					counter += 1;
-				} else {
-					state = INIT_TRANS;
-					counter = 0;
-					post loadStartingConfig();
-				}
-				break;
-			case INIT_TRANS:
-				if(counter < nTransitions){
-					nextTransition();
-					counter += 1;
-				} else {
-					state = INIT_OBSER;
-					counter = 0;
-					post loadStartingConfig();
-				}
-				break;
-			case INIT_OBSER:
-				if(counter < nObservables){
-					nextObservable();
-					counter += 1;
-				} else {
-					state = INIT_DONE;
-					counter = 0;
-					post loadStartingConfig();
-				}
-				break;
-			case INIT_DONE:
-
-				break;
+		count = 0;
+		while( count < transitions ){
+			uint8_t from = initTransitions[count][0];
+			uint8_t to = initTransitions[count][1];
+			call TMConfig.addTransition( from, to );
+			count += 1;
 		}
+
+		count = 0;
+		while( count < observables ){
+			uint8_t id = initObservables[count][0];
+			wids_observable_t obs = initObservables[count][1];
+			call TMConfig.addObservable( id, obs );
+			count += 1;
+		}
+
+		count = 0;
+		while( count < resets ){
+			uint8_t id = initResetObservables[count][0];
+			wids_observable_t obs = initResetObservables[count][1];
+			call TMConfig.addResetObservable( id, obs );
+			count += 1;
+		}
+
+		count = 0;
+		while( count < loops ){
+			uint8_t id = initLoops[count][0];
+			bool loop = initLoops[count][1];
+			call TMConfig.allowLoop( id, loop );
+			count += 1;
+		}
+
+		count = 0;
+		while( count < loops ){
+			uint8_t id = initResetCount[count][0];
+			uint8_t resetCount = initResetCount[count][1];
+			call TMConfig.setResetCount( id, resetCount );
+			count += 1;
+		}
+
+		signal ModelReady.booted();
 	}
 
-	void nextState(){
-		error_t res = call ModelConfig.createState(initStates[counter][0], initStates[counter][1], initStates[counter][2]);
-		if( res != SUCCESS )
-			post loadStartingConfig();
+	event void Boot.booted(){
+		call Init.init();
+		post startingConfig();
 	}
 
-	void nextTransition(){
-		error_t res = call ModelConfig.addTransition( initTransitions[counter][0], initTransitions[counter][1] );
-		if( res != SUCCESS )
-			post loadStartingConfig();
-	}
-
-	void nextObservable(){
-		error_t res = call ModelConfig.addObservable( initObservables[counter][0], initTransitions[counter][1] );
-		if( res != SUCCESS )
-			post loadStartingConfig();
-	}
-
-	event void ModelConfig.changeDone(error_t error){
-		post loadStartingConfig();
-	}
+	async event void TMConfig.syncDone(){}
 
 }

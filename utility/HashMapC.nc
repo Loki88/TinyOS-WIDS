@@ -58,12 +58,13 @@ generic module HashMapC(typedef key_type, typedef el_type, uint8_t n) {
 		return SUCCESS;
 	}
 
-	async command error_t HashMap.insert( el_type *element, key_type key ) {
-		if ( call HashMap.get(key) == NULL ) {
+	async command error_t HashMap.insert( key_type key, el_type *element ) {
+		el_type *e = NULL;
+		if ( call HashMap.get(key, &e) == FAIL ) {
 			uint8_t i = call Hash.getHash( key );
 
 			list_t *newEl = malloc( sizeof(list_t) );
-			newEl->element = (el_type*)element;
+			newEl->element = element;
 			newEl->key = key;
 			newEl->next = hashmap[i];
 			hashmap[i] = newEl;
@@ -75,37 +76,45 @@ generic module HashMapC(typedef key_type, typedef el_type, uint8_t n) {
 		}
 	}
 
-	async command el_type* HashMap.get( key_type key ) {
+	async command error_t HashMap.get( key_type key, el_type **el ) {
 		uint8_t i = call Hash.getHash( key );
 		list_t *tmp = hashmap[ i ];
 
 		while ( tmp != NULL ) {
 			if ( call Hash.compare(tmp->key, key ) == TRUE ){
-				return tmp->element;
+				*el = tmp->element;
+				return SUCCESS;
 			}
 			else 
 				tmp = tmp->next;
 		}
 
-		return NULL;
+		return FAIL;
 	}
 
 	async command error_t HashMap.remove( key_type key ) {
 
-		uint8_t i = call Hash.getHash( key );
+		uint8_t i = call Hash.getHash( key ), count = 0;
 		list_t *l = hashmap[ i ];
-		list_t *tmp = l;
+		list_t *tmp = hashmap[ i ];
 		list_t *pre = NULL;
 
 		while ( tmp != NULL && call Hash.compare(tmp->key, key ) == FALSE ) {
 			pre = tmp;
 			tmp = tmp->next;
+			count+=1;
 		}
 
 		if ( tmp == NULL )
 			return FAIL;
 		else {
-			pre->next = tmp->next;
+			if(count != 0){
+				pre->next = tmp->next;
+				free(tmp);
+			} else {
+				hashmap[i] = tmp->next;
+				free(tmp);
+			}
 			return SUCCESS;
 		}
 

@@ -38,13 +38,16 @@ configuration WIDSC {
 		interface AlarmGeneration;
 		interface ThreatModel;
 		interface ModelConfig;
-		
 	}
 	uses {
 		interface Boot;
+
+#ifdef WIDS_WRITE_CONFIG
 		interface Leds;
 		interface BusyWait<TMilli, uint16_t>;
-		interface Notify<wids_observable_t> as Observable;
+#endif
+		
+		interface ObservableNotify;
 
 		interface ThreatDetection;
 		interface SystemInfo;
@@ -65,47 +68,59 @@ configuration WIDSC {
 	#endif
 
 	components new SimpleHashMapC(wids_state_trace_t, TRACE_NUMBERS) as HMap, WIDSManagerP;
-	components new QueueC(wids_state_trace_t*, TRACE_NUMBERS);
-	components new QueueC(wids_observable_t, OBS_NUMBERS) as ObservableQueue;
+	components new AsyncQueueC(wids_state_trace_t*, TRACE_NUMBERS) as Traces;
+	components new AsyncQueueC(wids_observable_t, OBS_NUMBERS) as ObservableQueue;
 	
 	components WIDSThreatModelC as Model, AnomalyDetectionP as Detection;
 
-	// Dummies
-	components RemoteDetectionDummyP as RemoteDummy;
+	components IntrusionDetectionSystemC as PlatformC;
 
-	#ifdef WIDS_DEBUG
-	components SysMonDummyP, DebugP;
+	Detection.ThreatDetection -> PlatformC;
+
+#ifdef NO_REMOTE
+	components RemoteDetectionDummyP as RemoteDummy;
+	Detection.RemoteDetection -> RemoteDummy;
+#else
+	Detection.RemoteDetection -> PlatformC;
+#endif
+
+#ifdef NO_SYSMON
+	components SysMonDummyP;
 	Detection.SystemInfo -> SysMonDummyP;
 	Detection.NetworkUtility -> SysMonDummyP;
+#else
+	Detection.SystemInfo -> PlatformC;
+	Detection.NetworkUtility -> PlatformC;
+#endif
+
+#ifdef WIDS_DEBUG
+	components DebugP;
 	DebugP.AlarmGeneration -> Model;
-	#endif
+#endif
 
 	AlarmGeneration = WIDSManagerP;
 	ThreatModel = Model.ThreatModel;
 	ModelConfig = Model.ModelConfig;
-	Ready = Model;
+	Ready = WIDSManagerP.WIDSBoot;
 	ThreatDetection = Detection;
 	SystemInfo = Detection;
 	NetworkUtility = Detection;
 	RemoteDetection = Detection.RemoteDetection;
 
-	Boot = Model.Boot;	
+
+	Boot = Model.Boot;
+#ifdef WIDS_WRITE_CONFIG
 	Leds = Model.Leds;
 	BusyWait = Model.BusyWait;
-	Observable = WIDSManagerP.Notify;
-
-	// This signals nothing
-	Detection.RemoteDetection -> RemoteDummy;
-
-
-	
-
+#endif
+	ObservableNotify = WIDSManagerP.ObservableNotify;
 
 	Detection.Observables -> ObservableQueue;
 
-	WIDSManagerP.Notify -> Detection.Notify;
+	WIDSManagerP.ObservableNotify -> Detection.ObservableNotify;
 	WIDSManagerP.ThreatModel -> Model;
-	WIDSManagerP.Traces -> QueueC;
+	WIDSManagerP.Traces -> Traces;
 	WIDSManagerP.HashMap -> HMap;
 	WIDSManagerP.Observables -> ObservableQueue;
+	WIDSManagerP.Boot -> Model;
 }

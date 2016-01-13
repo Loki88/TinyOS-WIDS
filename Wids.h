@@ -36,16 +36,16 @@
 #define RESET_COUNT 5
 
 
-enum wids_alarm_level {
+typedef enum wids_alarm_level {
     
     HIGH_LEV_THREAT =  20,
     LOW_LEV_THREAT =   5,
 
-};
+} wids_alarm_level_t;
 
 typedef enum wids_attack {
 
-	NO_ATTACK=					0X00,
+	NO_ATTACK =					0X00,
 
 	CONSTANT_JAMMING =			0X01,
 	DECEPTIVE_JAMMING =			0X02,
@@ -290,6 +290,9 @@ char* printObservable(wids_observable_t o){
 			break;
 		case OBS_30: 
 			return "OBS_30";
+			break;
+		case OBS_NONE:
+			return "OBS_NONE";
 			break;
 		default:
 			return "";

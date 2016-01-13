@@ -5,16 +5,16 @@
 
 interface NetworkUtility {
 
-	async command bool isClusterHead();
+	command bool isClusterHead();
 
-	async command bool isMyAddress(uint16_t *addr);
+	command bool isMyAddress(uint16_t *addr);
 
-	async command uint16_t* getNextHop(uint16_t *addr);
+	command uint16_t* getNextHop(uint16_t *addr);
 
-	async command bool isAuthenticated(uint16_t *address);
+	command bool isAuthenticated(uint16_t *address);
 
-	async command void getSrcAddr(message_t *msg, uint16_t* addr);
-	async command void getDstAddr(message_t *msg, uint16_t* addr);
+	command void getSrcAddr(message_t *msg, uint16_t* addr);
+	command void getDstAddr(message_t *msg, uint16_t* addr);
 
-	async command void getCHAddr(uint16_t* addr);
+	command void getCHAddr(uint16_t* addr);
 }

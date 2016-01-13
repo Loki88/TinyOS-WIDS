@@ -19,12 +19,9 @@ module SysMonDummyP {
 		return 1;
 	}
 
-	async command uint8_t SystemInfo.getLastDSN(message_t *msg) {
-		return call IEEE154Frame.getDSN(msg)-1;
-	}
-
-	async command bool SystemInfo.isDetectedRemotely(wids_observable_t obs) {
-		return FALSE;
+	async command uint8_t SystemInfo.getLastDSN(message_t *msg, uint8_t *seq) {
+		*seq = call IEEE154Frame.getDSN(msg)-1;
+		return SUCCESS;
 	}
 
 	async command bool NetworkUtility.isClusterHead() {

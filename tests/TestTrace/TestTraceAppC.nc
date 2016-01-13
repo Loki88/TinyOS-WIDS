@@ -38,29 +38,35 @@ configuration TestTraceAppC
 }
 implementation
 {
-	components MainC, TestTraceC, LedsC, new BusyWaitCounterC(TMilli, uint16_t) as ConfWait, 
-		new BusyWaitCounterC(TMilli, uint16_t) as AppWait, CounterMilli16C, new TimerMilliC();
+	#ifndef TRACE_NUMBERS
+	#define TRACE_NUMBERS 10
+	#endif
+
+	#ifndef OBS_NUMBERS
+	#define OBS_NUMBERS 20
+	#endif
+
+	components MainC, TestTraceC, LedsC, new TimerMilliC();
+	components new SimpleHashMapC(wids_state_trace_t, TRACE_NUMBERS) as HMap;
+	components new AsyncQueueC(wids_observable_t, OBS_NUMBERS) as ObservableQueue;
 	
 	components SerialPrintfC;
 
-	components WIDSC;
+	components new QueueC(wids_state_trace_t*, TRACE_NUMBERS);
+	components WIDSThreatModelC, WIDSManagerP;
 
-	TestTraceC.Boot -> WIDSC.Ready;
-	TestTraceC.ThreatModel -> WIDSC;
-	TestTraceC.ModelConfig -> WIDSC;
+	TestTraceC.Boot -> WIDSManagerP;
+	TestTraceC.ThreatModel -> WIDSThreatModelC;
+	TestTraceC.ModelConfig -> WIDSThreatModelC;
 	TestTraceC.Timer -> TimerMilliC;
 
+	WIDSThreatModelC.Boot -> MainC.Boot;
 
-	WIDSC.Observable -> TestTraceC.Observable;
-	WIDSC.Boot -> MainC.Boot;
-	WIDSC.Leds -> LedsC;
-	WIDSC.BusyWait -> ConfWait;
-
-	ConfWait.Counter -> CounterMilli16C;
-	AppWait.Counter -> CounterMilli16C;
-
- 	TestTraceC.Leds -> LedsC;
- 	TestTraceC.BusyWait -> AppWait;
- 	TestTraceC.AlarmGeneration -> WIDSC;
-
+	WIDSManagerP.Boot -> WIDSThreatModelC;
+	WIDSManagerP.ThreatModel -> WIDSThreatModelC;
+	WIDSManagerP.ObservableNotify -> TestTraceC;
+	WIDSManagerP.Traces -> QueueC;
+	WIDSManagerP.HashMap -> HMap;
+	WIDSManagerP.Observables -> ObservableQueue;
+	TestTraceC.AlarmGeneration -> WIDSManagerP;
 }

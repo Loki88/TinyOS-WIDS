@@ -54,12 +54,18 @@ typedef struct wids_obs_list {
 typedef struct wids_state {
 
     uint8_t id;
-    wids_attack_t attack;
-    uint8_t alarm_level;
-    struct wids_obs_list *observables;
-    struct wids_state_transition *transitions;
-    
-    bool flag;
+    wids_attack_t attack;   // type of attack detected
+    wids_alarm_level_t alarm_level;   // alarm value in this state
+    struct wids_obs_list *observables; // list of observables that can be found in this state
+    struct wids_obs_list *reset;    // list of observables that can imply a reset condition
+    struct wids_state_transition *transitions; // states reachable from this one
+    bool loop;  // permits to the state to be considered if one of its observables
+                // is releaved when we're in this state
+
+    uint8_t resetCount; // counts the number of observation before to reset a trace
+                        // in this state
+
+    bool flag; // utility flag for visiting the state graph
     struct wids_state *next;
 
 } wids_state_t;
@@ -80,8 +86,9 @@ typedef struct wids_threat_model {
 typedef struct wids_state_trace {
 
     wids_state_t *state;
-    uint8_t observation_count;
-    uint8_t alarm_value;
+    uint8_t count;
+    uint8_t score;
+    uint8_t aging;
 
 } wids_state_trace_t;
 

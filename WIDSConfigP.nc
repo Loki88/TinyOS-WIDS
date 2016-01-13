@@ -495,4 +495,6 @@ module WIDSConfigP {
 	async event void TMConfig.syncDone(){
 
 	}
+
+	default async event void ModelConfig.syncDone(){}
 }

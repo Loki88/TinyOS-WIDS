@@ -43,4 +43,11 @@ interface ModelConfig {
 	command error_t sync();
 
 	async event void syncDone();
+
+	command error_t addResetObservable( uint8_t stateId, wids_observable_t obs );
+
+	command error_t allowLoop( uint8_t stateId, bool loop );
+
+	async command error_t setResetCount( uint8_t stateId, uint8_t resetCount );
+
 }

@@ -1,3 +1,5 @@
+WIDS_PLATFORM_INCLUDE ?= $(TOSDIR)/platforms/$(PLATFORM)/mac/wids/Makefile.include
+
 CFLAGS += -I$(TOSDIR)/lib/wids \
 		-I$(TOSDIR)/lib/wids/dummy \
 		-I$(TOSDIR)/lib/wids/utility \
@@ -7,4 +9,22 @@ CFLAGS += -I$(TOSDIR)/lib/wids \
 
 CFLAGS += -I$(TOSDIR)/lib/printf
 
-include $(TOSDIR)/lib/mac/tkn154/Makefile.include 
+############################### Platform include ###############################
+
+# 1. check whether target is "clean"
+ifneq ($(strip $(foreach g,$(GOALS),$(findstring $(g),clean))),)
+  # do nothing (Makerules' default clean branch will be executed)
+
+# 2. check whether the platform is supported, by testing if file
+# WIDS_PLATFORM_INCLUDE exists
+else ifeq ($(strip $(wildcard $(WIDS_PLATFORM_INCLUDE))),)
+  $(error The target platform is not supported by the WIDS)
+else
+
+# 3. platform is supported: now include the platform-specific
+# WIDS Makefile and the TKN15.4 Makefile
+  include $(WIDS_PLATFORM_INCLUDE)
+  include $(TOSDIR)/lib/mac/tkn154/Makefile.include 
+endif
+
+

@@ -34,11 +34,13 @@
 module WIDSManagerP {
 
 	provides interface AlarmGeneration;
+	provides interface Boot as WIDSBoot;
 
+	uses interface Boot;
 	uses interface ThreatModel;
-	uses interface Notify<wids_observable_t>;
-	uses interface Queue<wids_state_trace_t*> as Traces;
-	uses interface Queue<wids_observable_t> as Observables;
+	uses interface ObservableNotify;
+	uses interface AsyncQueue<wids_state_trace_t*> as Traces;
+	uses interface AsyncQueue<wids_observable_t> as Observables;
 
 	// this keep trace of all active traces
 	uses interface HashMap<uint8_t, wids_state_trace_t> as HashMap;
@@ -50,161 +52,152 @@ module WIDSManagerP {
 		RESET_ID = 0,
 	};
 
+	bool m_booted = FALSE;
+
 	norace uint8_t reset = 0;
+	norace wids_state_t *resetState;
+
+	event void Boot.booted(){
+		printf("WIDSManagerP -> BOOT\n");
+		printfflush();
+		signal WIDSBoot.booted();
+	}
 
 	inline void updateScore(wids_state_trace_t *t, uint8_t al){
-		uint16_t tmp = (uint16_t)t->alarm_value + (uint16_t)al;
+		uint16_t tmp = (uint16_t)t->score + (uint16_t)al;
 		if(tmp > 255)
 			tmp = 255;
-		t->alarm_value = tmp;
+		t->score = tmp;
 	}
 
 	inline void initTrace(wids_state_trace_t *trace){
 		trace->state = NULL;
-		trace->observation_count = 0;
-		trace->alarm_value = 0;
+		trace->count = 0;
+		trace->score = 0;
+		trace->aging = 0;
 	}
 
 	bool containsObservable(wids_state_t *s, wids_observable_t o){
 		wids_obs_list_t *obsList = call ThreatModel.getObservables(s);
 		while(obsList != NULL){
-			if(obsList->obs == o)
+			if(obsList->obs == o){
 				return TRUE;
+			}
 			obsList = obsList->next;
 		}
+
 		return FALSE;
 	}
 
-	bool updateTrace(wids_state_trace_t *tr, wids_observable_t obs){
-		linked_list_t *traceList = call ThreatModel.getNextStates(tr->state);
-		bool r = TRUE;
-		uint8_t score = tr->alarm_value;
+	norace uint8_t traceSize = 0;
 
-		printf("Updating trace relative to attack %s in state %d for %s\n", printfAttack(tr->state->attack), 
-			tr->state->id, printObservable(obs));
-
-		if(containsObservable(tr->state, obs) == TRUE) { // state tr->state is still possible
-			tr->observation_count = 0;
-			signal AlarmGeneration.attackFound(tr->state->attack, tr->alarm_value);
-		} else {
-			tr->observation_count += 1; // reset count
-			if(tr->observation_count > RESET_COUNT){
-				r = FALSE;
-			} else {
-				signal AlarmGeneration.attackFound(tr->state->attack, tr->alarm_value);
-			}
-		}
-
-		
-		
-		// The new states are now considered
-
-		while(traceList != NULL){
-			printf("Iteration on state %d\n", ((wids_state_t*)traceList->element)->id);
-			// See if the state is possible for observable "obs"
-			if(containsObservable(((wids_state_t*)traceList->element), obs) == TRUE){
-				// Look for the same state in another trace, in that case we can merge
-				wids_state_trace_t *trace = call HashMap.get(((wids_state_t*)traceList->element)->id);
-
-				// If the trace exists then don't create a new trace, but update the existing one
-				if(trace != NULL){
-					trace->observation_count = 0; // set to zero the reset counter
-					if(trace->alarm_value > score){
-						updateScore(trace, trace->state->alarm_level);
-					} else {
-						updateScore(trace, score + trace->state->alarm_level - trace->alarm_value);
-					}
-				}
-				else {	// there is not a trace for this state so it is needed to create it
-					trace = malloc(sizeof(wids_state_trace_t));
-					trace->state = ((wids_state_t*)traceList->element);
-					trace->observation_count = 0;
-					trace->alarm_value = score + ((wids_state_t*)traceList->element)->alarm_level;
-					call Traces.enqueue(trace);
-					call HashMap.insert(trace, trace->state->id);
-				}
-
-				signal AlarmGeneration.attackFound(trace->state->attack, trace->alarm_value);
-			}
-
-			traceList = traceList->next;
-		}
-
-		return r;
-	}
-
-	void updateTraces(wids_observable_t obs) {
-		uint8_t i=0, size;
-		wids_state_trace_t *t;
-
-		if(call HashMap.get(RESET_ID) == NULL){
-			t = malloc(sizeof(wids_state_trace_t));
-			initTrace(t);
-			t->state = call ThreatModel.getResetState();		
+	inline void enqueueTrace(wids_state_trace_t *t){
+		if(call Traces.size() == call Traces.maxSize()){
+			wids_state_trace_t *tmp = call Traces.dequeue();
+			// TODO: sarebbe necessario valutare che la traccia non abbia basso rischio
+			traceSize -= 1;
 			call Traces.enqueue(t);
 		}
+	}
 
-		size=call Traces.size();
-		while( i < size ){
-			bool res;
-			t = call Traces.dequeue();
-			res = updateTrace(t, obs);
-			if( t->state->id != RESET_ID){
-				if(res == TRUE)
-					call Traces.enqueue(t);
-				else {
-					call HashMap.remove(t->state->id);
-					free(t);
+	void findNewTraces(wids_state_trace_t *tr, wids_observable_t obs){
+		wids_state_transition_t *neighbors = call ThreatModel.getNextStates(tr->state);
+		wids_obs_list_t *resetObservables = call ThreatModel.getResetObservables(tr->state);
+		wids_state_trace_t *trace = NULL;
+
+		while(resetObservables != NULL){ // check if the observable should reset this trace
+			if(resetObservables->obs == obs){
+				tr->count += 1;
+				if(tr->count > tr->state->resetCount){
+					tr->state = NULL;
+					tr->score = 0;
+					return; // the observable resets this trace
 				}
-			} else {
-				free(t);
+				return; // an observable can be in a list only once and it is a reset obs
 			}
-			i += 1;
+			resetObservables = resetObservables->next;
 		}
-	}
 
-	inline void resetTraces(){
-		while( call Traces.size() > 0 ){
-			wids_state_trace_t *tmp = call Traces.dequeue();
-			call HashMap.remove(tmp->state->id);
-			free(tmp);
-		}
-	}
-
-	task void parseObservable(){
-		wids_observable_t observable = call Observables.dequeue();
-		if( observable == OBS_NONE ) {
-			reset += 1;
-			if ( reset >= RESET_COUNT ){
-				resetTraces();
-			}
-		} else {
-			reset = 0;
-			updateTraces(observable);
-		}
-	}
-
-	task void update(){
-		while( call Observables.size() > 0 ){
-			updateTraces(call Observables.dequeue());
-		}
-	}
-
-	event void Notify.notify( wids_observable_t observable ){
-		printf("Notify.notify(%s)\n", printObservable(observable));
-		if( call Observables.size() == 0 ) {
-		// if( observable == OBS_NONE ) {
-			reset += 1;
-			if ( reset >= RESET_COUNT ){
-				printf("RESET\n");
-				reset = 0;
-				resetTraces();
-			}
-		} else {
-			reset = 0;
-			post update();
+		// state tr->state is still a possible state
+		if(tr->state->loop == TRUE && containsObservable(tr->state, obs) == TRUE) {
+			tr->count = 0;
+			tr->aging = 0;
+			signal AlarmGeneration.traceLevelUpdate(tr->state->attack, tr->score);
 		}
 		
+		// The new states are now considered
+		while(neighbors != NULL){
+			// Test if the state is possible for observable "obs"
+			if(containsObservable(neighbors->state, obs) == TRUE){
+				// Look for the same state in another trace, in that case we can merge them
+				if(call HashMap.get(neighbors->state->id, &trace) == SUCCESS){ 
+					// If a trace for this state exists then don't create a new one,
+					// but update the existing one and its score
+					trace->count = 0; // Set the reset counter to zero and update its score
+					trace->aging = 0;
+					// updateScore(trace, trace->state->alarm_level);
+					signal AlarmGeneration.traceLevelUpdate(trace->state->attack, trace->score);
+				}
+				else {
+					// there is not a trace for this state so it is needed to create it
+					trace = malloc(sizeof(wids_state_trace_t));
+					initTrace(trace);
+					trace->state = neighbors->state;
+					trace->score = trace->state->alarm_level;
+					
+					enqueueTrace(trace);
+					
+					call HashMap.insert(trace->state->id, trace);
+
+					signal AlarmGeneration.newTraceFound(trace->state->attack, trace->score);
+				}
+			}
+			neighbors = neighbors->next;
+		}
+	}
+
+
+	void updateTraces(wids_observable_t obs) {
+		uint8_t stateId;
+		wids_state_trace_t *t = NULL;
+		traceSize = call Traces.size();
+		
+		while( traceSize > 0 ){
+			t = call Traces.dequeue();
+			traceSize -= 1;
+
+			stateId = t->state->id;
+
+			t->aging += 1;
+
+			findNewTraces(t, obs);
+
+			if(t->state == NULL || t->aging > call ThreatModel.getMaxAging()){
+				call HashMap.remove(stateId);
+				free(t);
+			} else {
+				enqueueTrace(t);
+			}
+
+			
+		}
+		
+		if( obs != OBS_NONE ){
+			t = malloc(sizeof(wids_state_trace_t));
+			initTrace(t);
+			call ThreatModel.getResetState( &(t->state) );
+			findNewTraces(t, obs);
+		}
+	}
+
+	norace bool running = FALSE;
+
+	async event void ObservableNotify.notify( wids_observable_t o ){
+		// printf("ObservableNotify.notify( %s )\n", printObservable(o));
+
+		atomic{
+			updateTraces(o);
+		}
 	}
 
 }

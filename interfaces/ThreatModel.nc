@@ -33,9 +33,9 @@
 
 interface ThreatModel {
 
-    async command wids_state_t* getResetState();
+    async command void getResetState( wids_state_t **state );
 
-    async command wids_state_t* getState( uint8_t id );
+    async command void getState( uint8_t id, wids_state_t **state  );
 
     /* Returns the state reachable from currentState after detection of observable.
      * @ Returns: the list of the next states reachable with one hop from the current state if there is a possible 
@@ -44,8 +44,16 @@ interface ThreatModel {
      * 
      * 
      */
-    async command linked_list_t* getNextStates( wids_state_t *state );
+    async command wids_state_transition_t* getNextStates( wids_state_t *state );
 
     async command wids_obs_list_t* getObservables( wids_state_t *state );
+
+    async command bool isLoopAllowed( wids_state_t *state );
+
+    async command uint8_t getResetCount( wids_state_t *state );
+
+    async command wids_obs_list_t* getResetObservables( wids_state_t *state );
+
+    command uint8_t getMaxAging();
 
 }
