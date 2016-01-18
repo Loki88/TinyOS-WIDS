@@ -30,8 +30,10 @@
 
 interface AlarmGeneration {
 
-	event void traceLevelUpdate(wids_attack_t attack, uint8_t score);
+	event void updated();
 
-	event void newTraceFound(wids_attack_t attack, uint8_t score);
+	command wids_attack_t maxScoreAttack();
+
+	command uint8_t getSystemScore();
 
 }

@@ -2,6 +2,6 @@
 
 interface ObservableNotify {
 
-	async event void notify(wids_observable_t obs);
+	async event void notify(wids_obs_list_t *obs);
 
 }
